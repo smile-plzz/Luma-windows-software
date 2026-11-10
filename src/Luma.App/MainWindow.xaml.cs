@@ -67,7 +67,24 @@ public sealed partial class MainWindow : Window
         {
             if (AppSettings.IsSmokeTest && !File.Exists(Path.Combine(AppSettings.LocalRoot,"settings.json"))) { settings.ThumbnailSize=140; settings.ShowNames=true; }
             ApplyTheme();
-            await Task.Run(() => catalog.InitializeAsync());
+            if (settings.RestoredFromCorruptedFile)
+            {
+                Notify("Corrupted settings were safely reset to defaults; previous file preserved as settings.json.corrupt.", true);
+            }
+            if (!DiskGuard.HasSufficientSpace())
+            {
+                Notify("Low disk space on system drive (< 500 MB). Thumbnail generation is paused to safeguard your disk.", true);
+            }
+            var healthy = await Task.Run(() => catalog.QuickCheckAsync());
+            if (!healthy)
+            {
+                var repaired = await Task.Run(() => catalog.RepairCatalogAsync());
+                Notify(repaired ? "Catalog corruption detected and safely restored from backup." : "Catalog corruption detected; reinitialized library schema.", true);
+            }
+            else
+            {
+                await Task.Run(() => catalog.InitializeAsync());
+            }
             cache = await Task.Run(() => new ThumbnailCache(Path.Combine(AppSettings.LocalRoot, "thumbnails"), Math.Clamp(settings.CacheGiB, 1, 32) * 1024L * 1024 * 1024));
             thumbnails = new(cache, resolver, new WindowsThumbnailGenerator());
             if (AppSettings.IsSmokeTest) await SeedSmokeFixtures();
@@ -103,6 +120,7 @@ public sealed partial class MainWindow : Window
         SavePlace(); placeTimer.Stop(); ready = false; availabilityTimer.Stop(); workTimer.Stop(); scanCancellation?.Cancel(); queryCancellation?.Cancel(); searchCancellation?.Cancel(); preparationCancellation?.Cancel();
         try { await Task.WhenAll(cacheTasks.ToArray()); } catch (Exception) { /* Pending work must finish before releasing cache ownership. */ }
         cache?.Dispose();
+        App.Current.Exit();
     }
     private async Task Guard(Func<Task> action, bool exclusive = false)
     {
@@ -267,13 +285,13 @@ public sealed partial class MainWindow : Window
     }
     private Task Open()
     {
-        if (Selected is not null) Process.Start(new ProcessStartInfo(Resolve(Selected.Item.Media)) { UseShellExecute = true });
+        if (Selected is not null) ShellFiles.OpenInDefaultApp(Resolve(Selected.Item.Media));
         return Task.CompletedTask;
     }
     private async void OpenSelected(object sender, RoutedEventArgs e) => await Guard(Open);
     private async void RevealSelected(object sender, RoutedEventArgs e) => await Guard(() =>
     {
-        if (Selected is not null) Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{Resolve(Selected.Item.Media)}\"") { UseShellExecute = true });
+        if (Selected is not null) ShellFiles.RevealInExplorer(Resolve(Selected.Item.Media));
         return Task.CompletedTask;
     });
     private async void CopyPath(object sender, RoutedEventArgs e) => await ClipboardAction(async () =>

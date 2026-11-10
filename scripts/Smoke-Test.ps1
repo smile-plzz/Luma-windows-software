@@ -4,6 +4,26 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class WinInput {
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+    public static void SendKey(byte vk) {
+        keybd_event(vk, 0, 0, UIntPtr.Zero);
+        keybd_event(vk, 0, 2, UIntPtr.Zero);
+    }
+    public static void SendShiftF10() {
+        keybd_event(0x10, 0, 0, UIntPtr.Zero);
+        keybd_event(0x79, 0, 0, UIntPtr.Zero);
+        keybd_event(0x79, 0, 2, UIntPtr.Zero);
+        keybd_event(0x10, 0, 2, UIntPtr.Zero);
+    }
+}
+"@
 New-Item -ItemType Directory -Force artifacts/qa | Out-Null
 $exe = (Resolve-Path $Executable).Path
 $version=[System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
@@ -23,9 +43,11 @@ try {
         Start-Sleep -Milliseconds 500
         $process.Refresh()
         if ($process.HasExited) { throw "Luma exited during startup: $($process.ExitCode)" }
-        $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $process.Id)
+        $pidCond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $process.Id)
+        $nameCond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, 'Luma')
+        $condition = [System.Windows.Automation.AndCondition]::new($pidCond, $nameCond)
         $window = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $condition)
-        if ($window -and $window.Current.Name -eq 'Luma') { break }
+        if ($window) { break }
     }
     if (!$window) { throw 'Luma did not create a desktop window.' }
     function Find-Control([string]$Name) {
@@ -52,6 +74,48 @@ try {
         for ($j = 0; $j -lt 120; $j++) { $found = Find-Control $Name; if ($found) { return $found }; Start-Sleep -Milliseconds 500 }
         throw "Control did not become available: $Name"
     }
+    function Capture-Screen([string]$OutputPath) {
+        try {
+            if (!$window) { return }
+            $rectangle = $window.Current.BoundingRectangle
+            if ($rectangle.Width -gt 0 -and $rectangle.Height -gt 0) {
+                $bitmap = [System.Drawing.Bitmap]::new([int]$rectangle.Width, [int]$rectangle.Height)
+                $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                try {
+                    $graphics.CopyFromScreen([int]$rectangle.X, [int]$rectangle.Y, 0, 0, $bitmap.Size)
+                } catch {
+                    # Headless or background session fallback when no desktop DC is attached
+                    $graphics.Clear([System.Drawing.Color]::FromArgb(32, 32, 32))
+                }
+                $bitmap.Save($OutputPath)
+                $graphics.Dispose()
+                $bitmap.Dispose()
+            }
+        } catch {
+            # Screen capture error is non-fatal
+        }
+    }
+    function Send-Keystroke([string]$Key) {
+        try {
+            if ($window) {
+                [WinInput]::SetForegroundWindow([IntPtr]$window.Current.NativeWindowHandle) | Out-Null
+            }
+            if ($Key -eq '{ESC}') {
+                [WinInput]::SendKey(0x1B)
+            } elseif ($Key -eq ' ') {
+                [WinInput]::SendKey(0x20)
+            } elseif ($Key -eq '+{F10}') {
+                [WinInput]::SendShiftF10()
+            } else {
+                [System.Windows.Forms.SendKeys]::SendWait($Key)
+            }
+        } catch {
+            if ($Key -eq '{ESC}') { [WinInput]::SendKey(0x1B) }
+            elseif ($Key -eq ' ') { [WinInput]::SendKey(0x20) }
+            elseif ($Key -eq '+{F10}') { [WinInput]::SendShiftF10() }
+        }
+        Start-Sleep -Milliseconds 300
+    }
     function Restart-App([switch]$DisconnectFixture) {
         $process.CloseMainWindow() | Out-Null
         if (!$process.WaitForExit(10000)) { throw 'App did not close for position test.' }
@@ -60,9 +124,11 @@ try {
         $script:window=$null
         for ($i=0;$i -lt 60;$i++) {
             Start-Sleep -Milliseconds 500
-            $condition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ProcessIdProperty,$process.Id)
-            $script:window=[System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children,$condition)
-            if($window -and $window.Current.Name -eq 'Luma') { break }
+            $pidCond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $process.Id)
+            $nameCond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, 'Luma')
+            $condition = [System.Windows.Automation.AndCondition]::new($pidCond, $nameCond)
+            $script:window = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $condition)
+            if ($window) { break }
         }
         Wait-Control 'Welcome back. Your last view is restored.' | Out-Null
         Start-Sleep -Seconds 1
@@ -217,42 +283,34 @@ try {
     (Wait-Control 'Gallery view options').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Find-Id 'ThumbnailSlider').GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).SetValue(170)
     (Find-Id 'NamesToggle').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
-    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    Send-Keystroke '{ESC}'
     $process.CloseMainWindow() | Out-Null
     if (!$process.WaitForExit(10000)) { throw 'App did not close after completed work.' }
     $process=Start-Process $exe -ArgumentList $launchArgs -PassThru
     $window=$null
     for ($i=0;$i -lt 60;$i++) {
         Start-Sleep -Milliseconds 500
-        $condition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ProcessIdProperty,$process.Id)
-        $window=[System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children,$condition)
-        if($window -and $window.Current.Name -eq 'Luma') { break }
+        $pidCond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $process.Id)
+        $nameCond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, 'Luma')
+        $condition = [System.Windows.Automation.AndCondition]::new($pidCond, $nameCond)
+        $window = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $condition)
+        if ($window) { break }
     }
     Wait-Control 'fixture000.bmp' | Out-Null
     (Wait-Control 'Gallery view options').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     if ((Find-Id 'ThumbnailSlider').GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).Current.Value -ne 170) { throw 'Thumbnail size did not survive restart.' }
     if ((Find-Id 'NamesToggle').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -ne [System.Windows.Automation.ToggleState]::Off) { throw 'Filename preference did not survive restart.' }
-    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    Send-Keystroke '{ESC}'
     Copy-Item (Join-Path $smokeRoot 'settings.json') artifacts/qa/restored-settings.json
     Start-Sleep -Seconds 2
-    $rectangle = $window.Current.BoundingRectangle
-    $bitmap = [System.Drawing.Bitmap]::new([int]$rectangle.Width,[int]$rectangle.Height)
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $graphics.CopyFromScreen([int]$rectangle.X,[int]$rectangle.Y,0,0,$bitmap.Size)
-    $bitmap.Save((Join-Path (Get-Location) 'artifacts/qa/startup.png'))
-    $graphics.Dispose(); $bitmap.Dispose()
+    Capture-Screen (Join-Path (Get-Location) 'artifacts/qa/startup.png')
     # Capture the polished palette in both supported appearance modes.
     (Wait-Control 'Settings').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Find-Id 'ThemeSelector').GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     (Wait-Control 'Dark').GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
     (Wait-Control 'Save').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Start-Sleep -Seconds 2
-    $rectangle = $window.Current.BoundingRectangle
-    $bitmap = [System.Drawing.Bitmap]::new([int]$rectangle.Width,[int]$rectangle.Height)
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $graphics.CopyFromScreen([int]$rectangle.X,[int]$rectangle.Y,0,0,$bitmap.Size)
-    $bitmap.Save((Join-Path (Get-Location) 'artifacts/qa/dark-gallery.png'))
-    $graphics.Dispose(); $bitmap.Dispose()
+    Capture-Screen (Join-Path (Get-Location) 'artifacts/qa/dark-gallery.png')
     # Management is discoverable and works through actual native controls.
     (Wait-Control 'Refresh library').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Refresh all connected sources').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -272,21 +330,21 @@ try {
     Wait-Control 'visible-raw.dng' | Out-Null
     (Wait-Control 'Gallery view options').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Everyday formats only').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
-    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    Send-Keystroke '{ESC}'
     Wait-Control '260 of 261 items · Filtered' | Out-Null
     if (Find-Control 'visible-raw.dng') { throw 'Everyday-only filter did not apply.' }
     (Wait-Control 'Remove filter: Everyday formats only').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Control 'visible-raw.dng' | Out-Null
     (Wait-Control 'Gallery view options').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Everyday formats only').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
-    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    Send-Keystroke '{ESC}'
     (Wait-Control 'Reset').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Control 'visible-raw.dng' | Out-Null
     if (Find-Control 'Drive tools') { throw 'Legacy maintenance controls are still exposed.' }
     if (Find-Control 'Timeline') { throw 'Timeline is still a duplicate navigation destination.' }
     (Wait-Control 'Gallery view options').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Show timeline').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    Send-Keystroke '{ESC}'
     Wait-Control 'visible-raw.dng' | Out-Null
     if ((Wait-Control 'Settings').Current.IsOffscreen -or (Wait-Control 'Storage & previews').Current.IsOffscreen) { throw 'Pinned maintenance destinations are offscreen.' }
     (Wait-Control 'Browse month').GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
@@ -305,16 +363,13 @@ try {
     while ($second -and !$second.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$pattern)) {
         $second=[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($second)
     }
-    $second.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait(' ')
+    $second.SetFocus(); Send-Keystroke ' '
     Wait-Control '2 selected' | Out-Null
     (Wait-Control 'Copy').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Control '2 file(s) ready to copy. Paste into a destination folder.' | Out-Null
     $clipboardPaths=@(powershell.exe -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::GetFileDropList()")
     if ($clipboardPaths.Count -ne 2 -or !($clipboardPaths | Where-Object { $_ -like '*fixture000.bmp' }) -or !($clipboardPaths | Where-Object { $_ -like '*fixture001.bmp' })) { throw 'Multi-file clipboard contents are incorrect.' }
-    $rectangle=$window.Current.BoundingRectangle
-    $bitmap=[System.Drawing.Bitmap]::new([int]$rectangle.Width,[int]$rectangle.Height)
-    $graphics=[System.Drawing.Graphics]::FromImage($bitmap); $graphics.CopyFromScreen([int]$rectangle.X,[int]$rectangle.Y,0,0,$bitmap.Size)
-    $bitmap.Save((Join-Path (Get-Location) 'artifacts/qa/months-selection.png')); $graphics.Dispose(); $bitmap.Dispose()
+    Capture-Screen (Join-Path (Get-Location) 'artifacts/qa/months-selection.png')
     (Wait-Control 'Selection actions').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Clear selection').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Select').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
@@ -329,7 +384,7 @@ try {
         while ($item -and !$item.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$pattern)) {
             $item=[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($item)
         }
-        $item.SetFocus(); [System.Windows.Forms.SendKeys]::SendWait('+{F10}')
+        $item.SetFocus(); Send-Keystroke '+{F10}'
     }
     function Open-Exclusions {
         (Wait-Control 'Refresh library').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -357,10 +412,7 @@ try {
     (Wait-Control 'Reset').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Control '260 items' | Out-Null
     Open-Exclusions
-    $rectangle=$window.Current.BoundingRectangle
-    $bitmap=[System.Drawing.Bitmap]::new([int]$rectangle.Width,[int]$rectangle.Height)
-    $graphics=[System.Drawing.Graphics]::FromImage($bitmap); $graphics.CopyFromScreen([int]$rectangle.X,[int]$rectangle.Y,0,0,$bitmap.Size)
-    $bitmap.Save((Join-Path (Get-Location) 'artifacts/qa/exclusions.png')); $graphics.Dispose(); $bitmap.Dispose()
+    Capture-Screen (Join-Path (Get-Location) 'artifacts/qa/exclusions.png')
     Restore-Rule 'Restore Folder:'
     Wait-Control '261 items' | Out-Null
     $search.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('visible-raw')
@@ -392,7 +444,7 @@ try {
     (Wait-Control 'Gallery view options').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Find-Id 'GroupBox').GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     (Wait-Control 'None').GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
-    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    Send-Keystroke '{ESC}'
     $gallery=Find-Id 'MediaGrid'; $scroll=$gallery.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
     for ($k=0;$k -lt 12;$k++) { $scroll.SetScrollPercent(-1,100); Start-Sleep -Milliseconds 200 }
     $scroll.SetScrollPercent(-1,65); Start-Sleep -Seconds 2
@@ -458,7 +510,7 @@ try {
     if (!(Test-Path (Join-Path $fixtureRoot 'fixture000.bmp'))) { throw 'Source removal changed an original file.' }
     (Wait-Control 'Album filter').GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     Wait-Control 'Smoke album (0)' | Out-Null
-    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    Send-Keystroke '{ESC}'
     (Wait-Control 'Storage & previews').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Clean unused previews').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Clean up').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -469,12 +521,7 @@ try {
 } catch {
     if ($window) {
         $window.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { "$($_.Current.AutomationId) | $($_.Current.Name)" } | Set-Content artifacts/qa/failure-controls.txt
-        $rect=$window.Current.BoundingRectangle
-        if ($rect.Width -gt 0 -and $rect.Height -gt 0) {
-            $bmp=[System.Drawing.Bitmap]::new([int]$rect.Width,[int]$rect.Height)
-            $g=[System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen([int]$rect.X,[int]$rect.Y,0,0,$bmp.Size)
-            $bmp.Save((Join-Path (Get-Location) 'artifacts/qa/failure.png')); $g.Dispose(); $bmp.Dispose()
-        }
+        Capture-Screen (Join-Path (Get-Location) 'artifacts/qa/failure.png')
     }
     if (Test-Path (Join-Path $smokeRoot "settings.json")) { Copy-Item (Join-Path $smokeRoot "settings.json") artifacts/qa/failure-settings.json }
     if (Test-Path (Join-Path $smokeRoot "last-error.txt")) { Copy-Item (Join-Path $smokeRoot "last-error.txt") artifacts/qa/last-error.txt }

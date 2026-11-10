@@ -1,5 +1,7 @@
 using System.Text.Json;
+
 namespace Luma.App;
+
 public sealed class AppSettings
 {
     public bool RememberPlace { get; set; } = true;
@@ -17,40 +19,73 @@ public sealed class AppSettings
     public bool IncludeDescendants { get; set; } = true;
     public int CacheGiB { get; set; } = 2;
     public string Theme { get; set; } = "Default";
+    public bool RestoredFromCorruptedFile { get; set; }
+
     public static bool IsSmokeTest => Environment.GetCommandLineArgs().Contains("--smoke-test");
+
     private static string SmokeSession
     {
         get
         {
-            var value=Environment.GetCommandLineArgs().FirstOrDefault(a=>a.StartsWith("--smoke-session="))?["--smoke-session=".Length..];
-            return Guid.TryParse(value,out var id) ? id.ToString("N") : Environment.ProcessId.ToString();
+            var value = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--smoke-session="))?["--smoke-session=".Length..];
+            return Guid.TryParse(value, out var id) ? id.ToString("N") : Environment.ProcessId.ToString();
         }
     }
+
     public static string LocalRoot => IsSmokeTest ? Path.Combine(Path.GetTempPath(), "Luma-smoke-" + SmokeSession)
         : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Luma");
+
     public static AppSettings Load()
     {
-        try { return FromJson(File.ReadAllText(Path.Combine(LocalRoot,"settings.json"))); }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return new(); }
+        var settingsPath = Path.Combine(LocalRoot, "settings.json");
+        if (!File.Exists(settingsPath)) return new();
+
+        try
+        {
+            var json = File.ReadAllText(settingsPath);
+            return FromJson(json);
+        }
+        catch (JsonException ex)
+        {
+            // Preserve corrupted file for user diagnostics rather than overwriting silently
+            try
+            {
+                var corruptPath = Path.Combine(LocalRoot, "settings.json.corrupt");
+                File.Copy(settingsPath, corruptPath, true);
+                File.AppendAllText(Path.Combine(LocalRoot, "last-error.txt"), $"[{DateTime.UtcNow:O}] Corrupt settings preserved to settings.json.corrupt: {ex.Message}{Environment.NewLine}");
+            }
+            catch { }
+
+            var fallback = new AppSettings { RestoredFromCorruptedFile = true };
+            return fallback;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return new();
+        }
     }
+
     public static AppSettings FromJson(string json)
     {
-        var settings=JsonSerializer.Deserialize<AppSettings>(json) ?? new();
-        using var document=JsonDocument.Parse(json);
+        var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new();
+        using var document = JsonDocument.Parse(json);
         // Older versions enabled this filter by default. Reveal supported files once
         // on upgrade; subsequent explicit choices remain persistent.
-        if(document.RootElement.ValueKind==JsonValueKind.Object && !document.RootElement.TryGetProperty(nameof(FilterDefaultsVersion),out _))
-            settings.CommonOnly=false;
-        settings.FilterDefaultsVersion=1;
+        if (document.RootElement.ValueKind == JsonValueKind.Object && !document.RootElement.TryGetProperty(nameof(FilterDefaultsVersion), out _))
+            settings.CommonOnly = false;
+        settings.FilterDefaultsVersion = 1;
         return settings;
     }
+
     public void Save()
     {
         Directory.CreateDirectory(LocalRoot);
-        var path = Path.Combine(LocalRoot,"settings.json");
-        File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(this)); File.Move(path + ".tmp", path, true);
+        var path = Path.Combine(LocalRoot, "settings.json");
+        var tempPath = path + ".tmp";
+        File.WriteAllText(tempPath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+        File.Move(tempPath, path, true);
     }
 }
 
-public sealed record BrowsePlace(string? SourceId=null,string Folder="",string Search="",string? AlbumId=null,
-    int Navigation=0,string? Month=null,string? MemoryDay=null,string? AnchorSource=null,string? AnchorPath=null,double Inset=0);
+public sealed record BrowsePlace(string? SourceId = null, string Folder = "", string Search = "", string? AlbumId = null,
+    int Navigation = 0, string? Month = null, string? MemoryDay = null, string? AnchorSource = null, string? AnchorPath = null, double Inset = 0);

@@ -10,7 +10,9 @@ public sealed record SourceInfo(string Id, string RootPath, DateTime LastSeenUtc
 /// <summary>Persistent metadata for removable media. Database lives on the PC, never on the drive.</summary>
 public sealed partial class MediaCache(string databasePath, ISourceResolver? sourceResolver = null)
 {
+    public string DatabasePath => databasePath;
     private readonly string connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString();
+
     private SqliteConnection CreateConnection()
     {
         var db = new SqliteConnection(connectionString);
@@ -18,14 +20,99 @@ public sealed partial class MediaCache(string databasePath, ISourceResolver? sou
         db.CreateCollation("LUMA_PATH", (a,b) => StringComparer.OrdinalIgnoreCase.Compare(a,b));
         return db;
     }
+
+    public async Task<bool> QuickCheckAsync(CancellationToken ct = default)
+    {
+        if (!File.Exists(databasePath)) return true;
+        try
+        {
+            await using var db = CreateConnection();
+            await db.OpenAsync(ct);
+            await using var cmd = db.CreateCommand();
+            cmd.CommandText = "PRAGMA quick_check(100);";
+            var result = Convert.ToString(await cmd.ExecuteScalarAsync(ct));
+            return string.Equals(result, "ok", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task CheckpointAsync(CancellationToken ct = default)
+    {
+        if (!File.Exists(databasePath)) return;
+        try
+        {
+            await using var db = CreateConnection();
+            await db.OpenAsync(ct);
+            await using var cmd = db.CreateCommand();
+            cmd.CommandText = "PRAGMA wal_checkpoint(PASSIVE);";
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        catch { }
+    }
+
+    public async Task<bool> RepairCatalogAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            SqliteConnection.ClearAllPools();
+            var backupPath = databasePath + ".bak";
+            var corruptArchive = Path.Combine(Path.GetDirectoryName(databasePath)!, $"catalog-corrupt-{DateTime.UtcNow:yyyyMMddHHmmss}.db");
+
+            if (File.Exists(databasePath))
+            {
+                File.Copy(databasePath, corruptArchive, true);
+            }
+
+            if (File.Exists(backupPath))
+            {
+                File.Copy(backupPath, databasePath, true);
+                if (await QuickCheckAsync(ct))
+                {
+                    await InitializeAsync(ct);
+                    return true;
+                }
+            }
+
+            // If backup is missing or damaged, delete damaged database and initialize fresh schema
+            if (File.Exists(databasePath)) File.Delete(databasePath);
+            var walFile = databasePath + "-wal";
+            var shmFile = databasePath + "-shm";
+            if (File.Exists(walFile)) File.Delete(walFile);
+            if (File.Exists(shmFile)) File.Delete(shmFile);
+
+            await InitializeAsync(ct);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task InitializeAsync(CancellationToken ct = default)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(databasePath))!);
+        var fullDbPath = Path.GetFullPath(databasePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullDbPath)!);
+
+        // Pre-migration backup: if catalog exists, create catalog.db.bak before applying changes
+        if (File.Exists(fullDbPath) && new FileInfo(fullDbPath).Length > 0)
+        {
+            try
+            {
+                File.Copy(fullDbPath, fullDbPath + ".bak", true);
+            }
+            catch { }
+        }
+
         await using var db = CreateConnection();
         await db.OpenAsync(ct);
         await using var cmd = db.CreateCommand();
         cmd.CommandText = """
             PRAGMA journal_mode=WAL;
+            PRAGMA synchronous=NORMAL;
             CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, root_path TEXT NOT NULL, last_seen TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS media(source_id TEXT NOT NULL, relative_path TEXT NOT NULL,
                 length INTEGER NOT NULL, modified_ticks INTEGER NOT NULL, kind TEXT NOT NULL,
@@ -42,8 +129,15 @@ public sealed partial class MediaCache(string databasePath, ISourceResolver? sou
         cmd.CommandText = ScanSchema; await cmd.ExecuteNonQueryAsync(ct);
         cmd.CommandText = OrganizationSchema; await cmd.ExecuteNonQueryAsync(ct);
         await using var migration = db.BeginTransaction();
-        cmd.Transaction=migration; cmd.CommandText = BrowseDateSchema; await cmd.ExecuteNonQueryAsync(ct);
+        cmd.Transaction = migration;
+        cmd.CommandText = BrowseDateSchema;
+        await cmd.ExecuteNonQueryAsync(ct);
         await migration.CommitAsync(ct);
+
+        // Run passive checkpoint after initialization
+        cmd.Transaction = null;
+        cmd.CommandText = "PRAGMA wal_checkpoint(PASSIVE);";
+        try { await cmd.ExecuteNonQueryAsync(ct); } catch { }
     }
 
     public async Task<IReadOnlyList<CachedMedia>> ListAsync(string sourceId, CancellationToken ct = default)

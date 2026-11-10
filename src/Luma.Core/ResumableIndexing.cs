@@ -150,12 +150,14 @@ public sealed partial class MediaCache
                 }
                 await tx.CommitAsync(ct); count+=batch.Count; batch.Clear(); progress?.Report(count); Report(folder);
             }
+            const FileAttributes CloudPlaceholderFlags = FileAttributes.Offline | (FileAttributes)0x00400000 | (FileAttributes)0x00040000;
             foreach(var info in new DirectoryInfo(directory).EnumerateFiles())
             {
                 ct.ThrowIfCancellationRequested(); examined++; Report(folder);
                 if(exclusions.Any(e=>e.Matches(sourceId,Path.GetRelativePath(root,info.FullName))))continue;
                 if(!Extensions.Contains(info.Extension) || savedPaths.Contains(Path.GetRelativePath(root,info.FullName))) continue;
                 if(info.Attributes.HasFlag(FileAttributes.ReparsePoint)) continue;
+                if((info.Attributes & CloudPlaceholderFlags) != 0) continue;
                 batch.Add(info);
                 if(batch.Count==100) await SaveBatch();
             }

@@ -7,6 +7,8 @@ using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
 using Windows.Storage.Streams;
 
 namespace Luma.App;
@@ -42,36 +44,77 @@ public sealed partial class MainWindow
     private LibraryQuery CurrentQuery() => new(SelectedSource,SearchBox.Text.Trim(),Navigation.SelectedItem?.ToString() == "Photos" ? "photo" : Navigation.SelectedItem?.ToString() == "Videos" ? "video" : null,
         Navigation.SelectedItem?.ToString() == "Favorites",(MediaSort)settings.SortIndex,0,120,FolderFilter.Text.Trim(),settings.Descending,SelectedAlbum,settings.IncludeDescendants,settings.CommonOnly,beforeTicks,MemoriesOn:IsMemories ? MemoryDay : null,FromTicks:fromTicks);
 
+    private readonly SemaphoreSlim galleryGate = new(1, 1);
+
     private Task Refresh() => RefreshGallery(false);
     private async Task RefreshGallery(bool reuseMonths,int startOffset=0)
     {
         if (!ready) return;
-        queryCancellation?.Cancel(); queryCancellation = new(); var token = queryCancellation.Token;
-        loadedStart=startOffset; ResumeNavigation.Visibility=loadedStart>0 ? Visibility.Visible : Visibility.Collapsed;
-        cursor = null; exhausted = false; loading = false;
-        foreach(var card in cards) { card.Realized=false; card.Thumbnail=null; card.ThumbnailRequest?.Cancel(); card.ThumbnailRequest=null; }
-        cards.Clear(); groups.Clear(); activeQuery = CurrentQuery();
-        if (Grouped) MediaGrid.ItemsSource = new CollectionViewSource { IsSourceGrouped=true,Source=groups }.View;
-        else MediaGrid.ItemsSource = cards;
-        galleryScroll?.ChangeView(null,0,null,true);
-        EmptyState.Visibility=Visibility.Collapsed; Busy.IsActive=true;
-        if(!scanning && !preparing)Status.Text="Loading moments…";
-        libraryTotal=(await Task.Run(()=>catalog.SourceCountsAsync(token),token)).Values.Sum();
-        token.ThrowIfCancellationRequested(); BuildFilterChips();
-        await LoadMore(); token.ThrowIfCancellationRequested();
-        await LoadFolders(token);
-        var navigationQuery=activeQuery with { BeforeTicks=null,FromTicks=null };
-        if(!reuseMonths || navigationQuery!=monthQuery)
+        await galleryGate.WaitAsync();
+        try
         {
-            monthBuckets=await Task.Run(()=>catalog.MonthBucketsAsync(navigationQuery,token),token);
-            token.ThrowIfCancellationRequested(); monthQuery=navigationQuery;
+            queryCancellation?.Cancel(); queryCancellation = new(); var token = queryCancellation.Token;
+            loadedStart=startOffset; ResumeNavigation.Visibility=loadedStart>0 ? Visibility.Visible : Visibility.Collapsed;
+            cursor = null; exhausted = false; loading = false;
+            foreach(var card in cards) { card.Realized=false; card.Thumbnail=null; card.ThumbnailRequest?.Cancel(); card.ThumbnailRequest=null; }
+            cards.Clear(); groups.Clear(); activeQuery = CurrentQuery();
+            if (Grouped) MediaGrid.ItemsSource = new CollectionViewSource { IsSourceGrouped=true,Source=groups }.View;
+            else MediaGrid.ItemsSource = cards;
+            galleryScroll?.ChangeView(null,0,null,true);
+            EmptyState.Visibility=Visibility.Collapsed; Busy.IsActive=true;
+            if(!scanning && !preparing)Status.Text="Loading moments…";
+
+            // Render first page immediately for sub-second first paint
+            await LoadMore(); token.ThrowIfCancellationRequested();
+
+            // Defer month navigation and source count calculations off critical paint path
+            var navQuery = activeQuery with { BeforeTicks = null, FromTicks = null };
+            _ = Task.Run(async () =>
+            {
+                if (token.IsCancellationRequested) return;
+                try
+                {
+                    var counts = await catalog.SourceCountsAsync(token);
+                    var totalSum = counts.Values.Sum();
+                    IReadOnlyList<MonthBucket>? buckets = null;
+                    if (!reuseMonths || navQuery != monthQuery)
+                    {
+                        buckets = await catalog.MonthBucketsAsync(navQuery, token);
+                    }
+
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        if (token.IsCancellationRequested) return;
+                        libraryTotal = totalSum;
+                        BuildFilterChips();
+                        if (buckets is not null)
+                        {
+                            monthBuckets = buckets;
+                            monthQuery = navQuery;
+                            var wasReady = ready; ready = false;
+                            DateJump.ItemsSource = monthBuckets;
+                            DateJump.SelectedItem = monthBuckets.FirstOrDefault(m => m.Month == selectedMonth);
+                            MonthBrowser.Visibility = !IsMemories && settings.SortIndex is 0 or 1 or 4 ? Visibility.Visible : Visibility.Collapsed;
+                            var monthIndex = monthBuckets.ToList().FindIndex(m => m.Month == selectedMonth);
+                            NewerMonthButton.IsEnabled = monthIndex > 0;
+                            OlderMonthButton.IsEnabled = monthBuckets.Count > 0 && monthIndex < monthBuckets.Count - 1;
+                            AllMonthsButton.IsEnabled = selectedMonth is not null;
+                            ready = wasReady;
+                        }
+                        UpdateEmptyState();
+                    });
+                }
+                catch (OperationCanceledException) { }
+            }, token);
+
+            await LoadFolders(token);
+            SchedulePlaceSave();
         }
-        var wasReady=ready; ready=false;
-        DateJump.ItemsSource=monthBuckets; DateJump.SelectedItem=monthBuckets.FirstOrDefault(m=>m.Month==selectedMonth);
-        MonthBrowser.Visibility=!IsMemories && settings.SortIndex is 0 or 1 or 4 ? Visibility.Visible : Visibility.Collapsed;
-        var monthIndex=monthBuckets.ToList().FindIndex(m=>m.Month==selectedMonth);
-        NewerMonthButton.IsEnabled=monthIndex>0; OlderMonthButton.IsEnabled=monthBuckets.Count>0 && monthIndex<monthBuckets.Count-1;
-        AllMonthsButton.IsEnabled=selectedMonth is not null; ready=wasReady; SchedulePlaceSave();
+        catch (OperationCanceledException) { }
+        finally
+        {
+            galleryGate.Release();
+        }
     }
     private async Task LoadMore()
     {
@@ -92,19 +135,7 @@ public sealed partial class MainWindow
                 }
             }
             exhausted = page.Items.Count < query.Limit || loadedStart + cards.Count >= total;
-            EmptyState.Visibility = cards.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            EmptyTitle.Text = SearchBox.Text.Length > 0 ? "No matching moments" : "A little room for memories";
-            EmptyText.Text = SearchBox.Text.Length > 0 ? "Try another name, folder or tag, or choose Reset to clear browsing filters." : "Add a folder or drive to begin. If you already have a library, choose Reset to clear browsing filters.";
-            if (IsMemories && cards.Count == 0)
-            {
-                EmptyTitle.Text = "No memories for this day yet";
-                EmptyText.Text = "Choose another day or add more photos. Memories use recorded capture dates from earlier years; files without a capture date remain in your library. Active filters also apply.";
-            }
-            if(cards.Count==0 && (await catalog.ExclusionsAsync(ct)).Count>0)
-            {
-                ct.ThrowIfCancellationRequested();
-                EmptyText.Text += " Exclusions are active. Open Refresh → Manage exclusions to review or restore hidden media.";
-            }
+            UpdateEmptyState();
             LibrarySummary.Text = IsMemories ? $"{MemoryDay:MMMM d} · {total:N0} memories · {libraryTotal:N0} library items" : ActiveFilters.Children.Count>0 ? $"{total:N0} of {libraryTotal:N0} items · Filtered" : $"{total:N0} items";
             if (!scanning && !preparing) Status.Text = total == 0 ? "" : exhausted ? "You’re all caught up" : "Scroll to explore";
         }
@@ -142,6 +173,7 @@ public sealed partial class MainWindow
     private async Task LoadThumbnail(MediaCard card)
     {
         if(!ready || clearing || !card.Realized || card.ThumbnailRequest is not null || card.Thumbnail is not null || queryCancellation is null) return;
+        if (!DiskGuard.HasSufficientSpace()) return;
         var request=CancellationTokenSource.CreateLinkedTokenSource(queryCancellation.Token); card.ThumbnailRequest=request; var ct=request.Token;
         try
         {
@@ -149,7 +181,13 @@ public sealed partial class MainWindow
             if(bytes is null || !card.Realized || ct.IsCancellationRequested) return;
             using var stream=new InMemoryRandomAccessStream();
             using(var writer=new DataWriter(stream.GetOutputStreamAt(0))) { writer.WriteBytes(bytes); await writer.StoreAsync(); await writer.FlushAsync(); }
-            stream.Seek(0); var bitmap=new BitmapImage(); await bitmap.SetSourceAsync(stream);
+            stream.Seek(0);
+            var bitmap=new BitmapImage
+            {
+                DecodePixelWidth = (int)Math.Max(card.TileWidth, 160),
+                DecodePixelType = DecodePixelType.Logical
+            };
+            await bitmap.SetSourceAsync(stream);
             if(card.Realized && !ct.IsCancellationRequested) card.Thumbnail=bitmap;
             if(AppSettings.IsSmokeTest)
             {
@@ -302,4 +340,100 @@ public sealed partial class MainWindow
         }
         finally { CancelButton.Visibility=Visibility.Collapsed; }
     },true);
+
+    private async void UpdateEmptyState()
+    {
+        if (cards.Count > 0)
+        {
+            EmptyState.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        EmptyState.Visibility = Visibility.Visible;
+        EmptyAddButton.Visibility = Visibility.Collapsed;
+        EmptyResetButton.Visibility = Visibility.Collapsed;
+        EmptyClearSearchButton.Visibility = Visibility.Collapsed;
+        EmptyExclusionsButton.Visibility = Visibility.Collapsed;
+        EmptyStoreCodecButton.Visibility = Visibility.Collapsed;
+
+        var hasSources = Sources.Items.Count > 0;
+        var hasSearch = !string.IsNullOrWhiteSpace(SearchBox.Text);
+        var hasActiveFilters = ActiveFilters.Children.Count > 0 || selectedMonth is not null || AlbumsBox.SelectedItem is not null;
+        var exclusionsActive = false;
+        try { exclusionsActive = (await catalog.ExclusionsAsync()).Count > 0; } catch { }
+
+        if (!hasSources)
+        {
+            EmptyIcon.Glyph = "\uEB9F";
+            EmptyTitle.Text = "A little room for memories";
+            EmptyText.Text = "Add a folder or drive to begin. If you already have a library, choose Reset to clear browsing filters.";
+            EmptyAddButton.Visibility = Visibility.Visible;
+        }
+        else if (hasSearch)
+        {
+            EmptyIcon.Glyph = "\uE721";
+            EmptyTitle.Text = "No matching moments";
+            EmptyText.Text = "Try another name, folder or tag, or choose Reset to clear browsing filters.";
+            if (exclusionsActive) EmptyText.Text += " Exclusions are active. Open Refresh → Manage exclusions to review or restore hidden media.";
+            EmptyClearSearchButton.Visibility = Visibility.Visible;
+            if (hasActiveFilters) EmptyResetButton.Visibility = Visibility.Visible;
+        }
+        else if (hasActiveFilters)
+        {
+            EmptyIcon.Glyph = "\uE71C";
+            EmptyTitle.Text = "No moments match these filters";
+            EmptyText.Text = "Try loosening your active filters or date range, or choose Reset to return to your full library.";
+            EmptyResetButton.Visibility = Visibility.Visible;
+        }
+        else if (IsMemories)
+        {
+            EmptyIcon.Glyph = "\uE787";
+            EmptyTitle.Text = "No memories for this day yet";
+            EmptyText.Text = "Memories look for photos and videos captured on this day in past years. Try picking another date.";
+        }
+        else if (exclusionsActive)
+        {
+            EmptyIcon.Glyph = "\uE72E";
+            EmptyTitle.Text = "Library media is hidden";
+            EmptyText.Text = "Exclusion rules are active for this view. You can review and restore hidden folders and file types.";
+            EmptyExclusionsButton.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            EmptyIcon.Glyph = "\uEB9F";
+            EmptyTitle.Text = "Your library is ready";
+            EmptyText.Text = "No media files were found in this source. Refresh to scan or choose another folder.";
+            EmptyAddButton.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void ResetFiltersAction(object sender, RoutedEventArgs e) => ResetFilters(sender, e);
+    private void ClearSearchAction(object sender, RoutedEventArgs e) { SearchBox.Text = ""; }
+    private void InstallCodecAction(object sender, RoutedEventArgs e)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ms-windows-store://pdp/?ProductId=9pmmsr1c69tx") { UseShellExecute = true }); } catch { }
+    }
+    private void EmptyStateDragOver(object sender, DragEventArgs e)
+    {
+        if (e.DataView.Contains(StandardDataFormats.StorageItems))
+            e.AcceptedOperation = DataPackageOperation.Link;
+    }
+    private async void EmptyStateDrop(object sender, DragEventArgs e)
+    {
+        if (e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            var items = await e.DataView.GetStorageItemsAsync();
+            foreach (var item in items)
+            {
+                if (item is StorageFolder folder)
+                {
+                    await Guard(async () =>
+                    {
+                        var source = await Task.Run(() => resolver.Register(folder.Path));
+                        await Scan(new[] { new SourceInfo(source.Id, source.RootPath, DateTime.UtcNow, true) }, reuseExisting: true);
+                    }, true);
+                }
+            }
+        }
+    }
 }
