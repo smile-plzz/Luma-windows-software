@@ -1,0 +1,40 @@
+# Development Log
+
+## 2026-11-11T00:16:39+06:00 - Swarm Orchestrator Handoff and Wave 0 Initialization
+
+### Task Received
+Luma: Agent Swarm Handoff (v0.6.0 to v1.0.0)
+- Repo: `https://github.com/smile-plzz/Luma-windows-software`
+- Branch: `main` (commit `f796035ec642253553acab84d67f51bee95d8f18`, v0.6.0)
+- Goal: Deliver complete swarm architecture, board, wave plan, Wave 0 ground truth, and prepare for Wave 1 builders.
+
+### Actions Taken
+- Checked repo remotes and git status:
+  - Discovered local repo on branch `feat/v0.7-tooltips-and-shortcuts` and switched cleanly to `main` at `f796035ec642253553acab84d67f51bee95d8f18`.
+  - Added upstream remote `https://github.com/smile-plzz/Luma-windows-software.git` and verified `origin/main` and `upstream/main` are identical at `f796035`.
+  - Resolved RCN-2: `smile-plzz/Luma` redirects to `smile-plzz/Luma-windows-software` following a GitHub repository rename.
+- Verified test baseline on `main`:
+  - `Luma.Tests`: 82 passed, 0 failed, 0 skipped (duration: 12s).
+  - `Luma.Windows.Tests`: 4 passed, 0 failed, 0 skipped (duration: 657ms).
+  - `dotnet publish src/Luma.App/Luma.App.csproj`: succeeded, published to `artifacts/Luma-win-x64`.
+  - `scripts/Smoke-Test.ps1`: analyzed screen capture exception in headless sessions, documented resilience fix requirement for QAE-1.
+- Initialized swarm governance documents:
+  - Created `docs/swarm/BOARD.md` with all tasks from Section 7.
+  - Created `docs/swarm/STATUS.md` with standard status logging protocol.
+  - Created `context.md`, `CHANGELOG.md`, `dev-log.md`.
+
+### Verification
+- Ran core test suite: `dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release`
+  - Result: 82 passed, 0 failed, 0 skipped (Duration: 10s).
+- Ran Windows test suite: `dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release`
+  - Result: 4 passed, 0 failed, 0 skipped (Duration: 421ms).
+- Self-contained build: `dotnet publish src/Luma.App/Luma.App.csproj -c Release -r win-x64 -p:Platform=x64 -o artifacts/Luma-win-x64`
+  - Result: Successful compilation and publishing.
+- Wave 0 deliverables produced and verified:
+  - `docs/swarm/BOARD.md` (ORC-1)
+  - `docs/swarm/STATUS.md` (Section 4.3 protocol)
+  - `docs/swarm/ARCHITECTURE_MAP.md` (RCN-1)
+  - `docs/swarm/DRIFT_REPORT.md` (RCN-2, RCN-3, RCN-5)
+  - `docs/swarm/USER_JOURNEYS.md` (RCN-4)
+  - `docs/swarm/THREAT_MODEL_DRAFT.md` (SEC-1)
+  - Batch Owner Decision & Human-Only acceptance package prepared (ORC-3)

@@ -1,0 +1,49 @@
+{
+  "Date": "2026-11-10T20:00:24.4614538Z",
+  "OS": "Microsoft Windows 10.0.26200",
+  "Processors": 8,
+  "Results": [
+    {
+      "Count": 1000,
+      "FirstBatchMs": 24.06,
+      "NextBatchMs": 5.17,
+      "MonthBreakdownMs": 12.05,
+      "LocateMiddleMs": 9.23,
+      "AllocatedMB": 0.11
+    },
+    {
+      "Count": 10000,
+      "FirstBatchMs": 13.04,
+      "NextBatchMs": 3.63,
+      "MonthBreakdownMs": 63.53,
+      "LocateMiddleMs": 33.66,
+      "AllocatedMB": 0.11
+    },
+    {
+      "Count": 100000,
+      "FirstBatchMs": 71.68,
+      "NextBatchMs": 2.66,
+      "MonthBreakdownMs": 1127.2,
+      "LocateMiddleMs": 571.16,
+      "AllocatedMB": 0.11
+    },
+    {
+      "Count": 200000,
+      "FirstBatchMs": 85.1,
+      "NextBatchMs": 2.63,
+      "MonthBreakdownMs": 874.82,
+      "LocateMiddleMs": 542.05,
+      "AllocatedMB": 0.11
+    },
+    {
+      "Count": 500000,
+      "FirstBatchMs": 203.89,
+      "NextBatchMs": 1.82,
+      "MonthBreakdownMs": 2376.98,
+      "LocateMiddleMs": 1346.09,
+      "AllocatedMB": 0.11
+    }
+  ],
+  "Note": "Single-run synthetic SQLite catalog query timings; not physical HDD scan or image decode."
+}
+
