@@ -64,18 +64,20 @@ public sealed partial class MainWindow
             EmptyState.Visibility=Visibility.Collapsed; Busy.IsActive=true;
             if(!scanning && !preparing)Status.Text="Loading moments…";
 
+            libraryTotal = (await Task.Run(() => catalog.SourceCountsAsync(token), token)).Values.Sum();
+            token.ThrowIfCancellationRequested();
+            BuildFilterChips();
+
             // Render first page immediately for sub-second first paint
             await LoadMore(); token.ThrowIfCancellationRequested();
 
-            // Defer month navigation and source count calculations off critical paint path
+            // Defer month navigation calculations off critical paint path
             var navQuery = activeQuery with { BeforeTicks = null, FromTicks = null };
             _ = Task.Run(async () =>
             {
                 if (token.IsCancellationRequested) return;
                 try
                 {
-                    var counts = await catalog.SourceCountsAsync(token);
-                    var totalSum = counts.Values.Sum();
                     IReadOnlyList<MonthBucket>? buckets = null;
                     if (!reuseMonths || navQuery != monthQuery)
                     {
@@ -85,8 +87,6 @@ public sealed partial class MainWindow
                     DispatcherQueue.TryEnqueue(() =>
                     {
                         if (token.IsCancellationRequested) return;
-                        libraryTotal = totalSum;
-                        BuildFilterChips();
                         if (buckets is not null)
                         {
                             monthBuckets = buckets;

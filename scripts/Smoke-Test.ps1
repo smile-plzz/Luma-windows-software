@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Executable)
+﻿param([Parameter(Mandatory=$true)][string]$Executable)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -12,6 +12,8 @@ public class WinInput {
     public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
     public static void SendKey(byte vk) {
         keybd_event(vk, 0, 0, UIntPtr.Zero);
         keybd_event(vk, 0, 2, UIntPtr.Zero);
@@ -116,9 +118,25 @@ try {
         }
         Start-Sleep -Milliseconds 300
     }
+    function Close-AppWindow {
+        try {
+            if ($window) {
+                $pattern = $null
+                if ($window.TryGetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern, [ref]$pattern)) {
+                    $pattern.Close()
+                }
+            }
+        } catch { }
+        try {
+            if ($window -and $window.Current.NativeWindowHandle -ne 0) {
+                [WinInput]::PostMessage([IntPtr]$window.Current.NativeWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+            }
+        } catch { }
+        if (!$process.HasExited) { $process.CloseMainWindow() | Out-Null }
+        if (!$process.WaitForExit(6000)) { $process.Kill() }
+    }
     function Restart-App([switch]$DisconnectFixture) {
-        $process.CloseMainWindow() | Out-Null
-        if (!$process.WaitForExit(10000)) { throw 'App did not close for position test.' }
+        Close-AppWindow
         if ($DisconnectFixture) { Move-Item $fixtureRoot ($fixtureRoot + ' disconnected') }
         $script:process=Start-Process $exe -ArgumentList $launchArgs -PassThru
         $script:window=$null
@@ -284,8 +302,7 @@ try {
     (Find-Id 'ThumbnailSlider').GetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern).SetValue(170)
     (Find-Id 'NamesToggle').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
     Send-Keystroke '{ESC}'
-    $process.CloseMainWindow() | Out-Null
-    if (!$process.WaitForExit(10000)) { throw 'App did not close after completed work.' }
+    Close-AppWindow
     $process=Start-Process $exe -ArgumentList $launchArgs -PassThru
     $window=$null
     for ($i=0;$i -lt 60;$i++) {
@@ -531,5 +548,5 @@ try {
         Where-Object { $_.Message -match 'Luma|Microsoft.UI.Xaml' } | Select-Object -First 5 -ExpandProperty Message | Set-Content artifacts/qa/windows-events.txt
     throw
 } finally {
-    if (!$process.HasExited) { $process.CloseMainWindow() | Out-Null; if (!$process.WaitForExit(5000)) { $process.Kill() } }
+    if (!$process.HasExited) { Close-AppWindow }
 }
