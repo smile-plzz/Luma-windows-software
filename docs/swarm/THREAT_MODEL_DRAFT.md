@@ -82,3 +82,4 @@ Luma is an offline, local-first Windows media library.
 1. Audit `ShellFiles.cs` for safe shell verb execution (SEC-2).
 2. Audit `FileTransfer.cs` and `MainWindow.xaml.cs` for path traversal and reserved names (SEC-3).
 3. Implement path redaction for crash logs (SEC-6).
+

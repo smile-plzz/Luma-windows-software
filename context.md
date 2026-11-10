@@ -33,3 +33,4 @@ Deliver Luma v1.0.0 starting from shipped milestone v0.6.0 (`f796035`):
 - Small, reviewable PRs with verified test evidence.
 - Do not break portable builds: unsigned portable ZIP stays supported alongside installers.
 - Plain, direct writing style: no em-dashes anywhere in code comments, commit messages, docs, or UI strings.
+

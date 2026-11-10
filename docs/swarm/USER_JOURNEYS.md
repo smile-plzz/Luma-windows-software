@@ -133,3 +133,4 @@ Audience: QAE and UXD engineers for test coverage, UI states, and scenario desig
   3. Displays a subtle notice: "Welcome back. Your last view is restored."
   4. Clicking "Earlier items" loads preceding items without jumping the viewport.
   5. Can be disabled in Settings → "Remember where I left off".
+

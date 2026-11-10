@@ -93,3 +93,4 @@ Documented in `docs/PERFORMANCE.md` for 200,000 synthetic catalog records:
 - Peak decoded bitmaps during native smoke: 58 decoded images for 260 items.
 
 These serve as the baseline that `PRF` must track and optimize in Wave 2.
+

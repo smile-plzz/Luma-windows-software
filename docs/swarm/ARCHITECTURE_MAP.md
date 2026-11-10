@@ -152,3 +152,4 @@ Serialized as JSON to `%LOCALAPPDATA%\Luma\settings.json` via safe write-to-temp
 2. `release.yml` (on push to `main` with release note updates):
    - Verifies tested commit SHA and ZIP SHA-256 against release metadata.
    - Publishes GitHub Release draft with `SHA256SUMS.txt` and verified ZIP.
+

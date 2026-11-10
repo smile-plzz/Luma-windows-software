@@ -60,3 +60,4 @@ The format is based on Keep a Changelog. Plain language, no em-dashes.
 - Initial portable Windows media library desktop app.
 - Read-only background scanning and volume GUID identity tracking.
 - Bounded LRU thumbnail cache and SQLite local catalog.
+
