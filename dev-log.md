@@ -149,3 +149,18 @@ Luma: Agent Swarm Handoff (v0.6.0 to v1.0.0)
   - `dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release`: 113 passed, 0 failed, 0 skipped.
   - `dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release`: 6 passed, 0 failed, 0 skipped.
   - Clean Release publish (`artifacts/Luma-v0.7.0-win-x64/Luma.App.exe`, `FileVersion=0.7.0.0`, SHA-256 `57447474848AE088E2C2BD7F6C3EAFE18640D346B869BA1ACAC2E0CE3BBEBC79`) and ZIP (`artifacts/Luma-v0.7.0-win-x64.zip`, `82.72 MB`, SHA-256 `CF122B9E5CF44C56ED02C21BF34F986B364180CB3D25329B7E685E8F4182BFF0`).
+
+
+### Scroll Stability Enhancement (`2026-11-12T01:44:30+06:00`)
+- **Root Causes:**
+  1. `RebuildAdaptiveRows()` (`Adaptive` / `Moments` layout) called `justifiedRows.Clear()` on every `LoadMore()`, destroying realized containers and resetting `adaptiveScroll.VerticalOffset` to `0`.
+  2. `JustifiedList_SizeChanged` used a `> 12 px` threshold (re-triggering when a vertical scrollbar appeared), and `ApplyLayoutModeVisibility` did not hook `Loaded` on `JustifiedRowsList`.
+  3. Bottom `LoadMore()` threshold (`600 px`) had no `pendingLoadMore` queuing or explicit scroll-offset guard around append, while `DateJump` (`MonthBuckets`) and `LoadSources` toggled global `ready` instead of using `suppressFilterEvents`.
+- **Changes ([MainWindow.xaml](src/Luma.App/MainWindow.xaml), [MainWindow.Gallery.cs](src/Luma.App/MainWindow.Gallery.cs), [MainWindow.xaml.cs](src/Luma.App/MainWindow.xaml.cs)):**
+  - Replaced `justifiedRows.Clear()` with incremental row-prefix diffing in `RebuildAdaptiveRows()`.
+  - Added `PreserveScrollAfterAppend`, raised prefetch threshold to `max(1400, 1.8x viewport)`, added `pendingLoadMore` queuing plus non-interactive `LoadMorePill` indicator, set `IsSynchronizedWithCurrentItem="False"`, hooked `JustifiedListLoaded`, raised resize rebuild threshold to `> 24 px`, and added `suppressFilterEvents` + no-op value guards in `FilterChanged` and `JumpDate`.
+- **Verification:**
+  - Live UIA bottom-scroll stress test across 260 items (3 pages): `UNIFORM_SCROLL_PASS FinalPct=100` and `MOMENTS_SCROLL_PASS FinalPct=100` with zero scroll-to-top resets.
+  - `dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release`: 113 passed, 0 failed, 0 skipped.
+  - `dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release`: 6 passed, 0 failed, 0 skipped.
+  - Published EXE (`artifacts/Luma-v0.7.0-win-x64/Luma.App.exe`, SHA-256 `BD64E8C08206100A9C2B86648168EB59F6B9564ED338277D4DC61E532041EE32`) and ZIP (`artifacts/Luma-v0.7.0-win-x64.zip`, `82.72 MB`, SHA-256 `D8D4F7109C67A32C3EC6E4EFA2577AD23F6FBCC9E76B6012AD857A755D007717`).

@@ -168,10 +168,16 @@ public sealed partial class MainWindow : Window
             if(!changed && Sources.ItemsSource is not null) return;
             var choices = new List<SourceChoice> { new(null, "All sources") };
             choices.AddRange(all.Select(s => new SourceChoice(s.Id, $"{(s.IsOnline ? "●" : "○")} {(labels.TryGetValue(s.Id, out var label) && label.Length > 0 ? label : s.RootPath)}")));
-            var wasReady = ready; ready = false;
-            Sources.ItemsSource = choices;
-            Sources.SelectedItem = choices.FirstOrDefault(s => s.Id == selected) ?? choices[0];
-            ready = wasReady;
+            suppressFilterEvents++;
+            try
+            {
+                Sources.ItemsSource = choices;
+                Sources.SelectedItem = choices.FirstOrDefault(s => s.Id == selected) ?? choices[0];
+            }
+            finally
+            {
+                suppressFilterEvents--;
+            }
             UpdateSidebarCounts(sourcesCount: all.Count);
             if (ready && changed)
             {

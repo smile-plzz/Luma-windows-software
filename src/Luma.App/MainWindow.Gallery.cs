@@ -23,7 +23,8 @@ public sealed partial class MainWindow
     private ScrollViewer? adaptiveScroll;
     private LibraryQuery? activeQuery;
     private GalleryCursor? cursor;
-    private bool loading, exhausted;
+    private bool loading, exhausted, pendingLoadMore;
+    private int suppressFilterEvents;
     private int peakDecoded;
     private long? beforeTicks, fromTicks;
     private string? selectedMonth;
@@ -127,6 +128,20 @@ public sealed partial class MainWindow
     private void ToggleSmartCollectionsSection(object sender, RoutedEventArgs e) { settings.SmartCollectionsExpanded = !settings.SmartCollectionsExpanded; ApplyCollapsibleState(); settings.Save(); }
     private void ToggleSourcesSection(object sender, RoutedEventArgs e) { settings.SourcesExpanded = !settings.SourcesExpanded; ApplyCollapsibleState(); settings.Save(); }
 
+    private ScrollViewer? ActiveGalleryScroll() => settings.LayoutMode == "Uniform" ? galleryScroll : adaptiveScroll;
+
+    private void EnsureAdaptiveScrollHooked()
+    {
+        adaptiveScroll ??= Descendant<ScrollViewer>(JustifiedRowsList);
+        if (adaptiveScroll is not null)
+        {
+            adaptiveScroll.ViewChanged -= OnGalleryScrollViewChanged;
+            adaptiveScroll.ViewChanged += OnGalleryScrollViewChanged;
+        }
+    }
+
+    private void JustifiedListLoaded(object sender, RoutedEventArgs e) => EnsureAdaptiveScrollHooked();
+
     private void ApplyLayoutModeVisibility()
     {
         var uniform = settings.LayoutMode == "Uniform";
@@ -135,20 +150,27 @@ public sealed partial class MainWindow
         if (!uniform)
         {
             JustifiedRowsList.ItemsSource = justifiedRows;
-            adaptiveScroll ??= Descendant<ScrollViewer>(JustifiedRowsList);
-            if (adaptiveScroll is not null)
-            {
-                adaptiveScroll.ViewChanged -= AdaptiveScroll_ViewChanged;
-                adaptiveScroll.ViewChanged += AdaptiveScroll_ViewChanged;
-            }
+            EnsureAdaptiveScrollHooked();
         }
     }
 
-    private async void AdaptiveScroll_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    private async void OnGalleryScrollViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
+        SchedulePlaceSave();
         UpdateVisibleTimeRange();
-        if (ready && !restoringPlace && adaptiveScroll is not null && adaptiveScroll.VerticalOffset + adaptiveScroll.ViewportHeight >= adaptiveScroll.ExtentHeight - 600)
+        if (!ready || restoringPlace || exhausted) return;
+        if (sender is not ScrollViewer sv || sv.ScrollableHeight <= 0) return;
+
+        double threshold = Math.Max(1400, sv.ViewportHeight * 1.8);
+        if (sv.VerticalOffset + sv.ViewportHeight >= sv.ExtentHeight - threshold)
+        {
+            if (loading)
+            {
+                pendingLoadMore = true;
+                return;
+            }
             await Guard(LoadMore);
+        }
     }
 
     private void LayoutModeChanged(object sender, SelectionChangedEventArgs e)
@@ -185,15 +207,40 @@ public sealed partial class MainWindow
     private void RebuildAdaptiveRows()
     {
         if (settings.LayoutMode == "Uniform") return;
+        EnsureAdaptiveScrollHooked();
+        double savedOffset = adaptiveScroll?.VerticalOffset ?? 0;
+        bool hadRows = justifiedRows.Count > 0;
+
         var width = JustifiedRowsList.ActualWidth > 100 ? JustifiedRowsList.ActualWidth : Math.Max(480, Root.ActualWidth - (settings.SidebarCollapsed ? 40 : 264));
         var built = JustifiedRowBuilder.Build(cards, width, settings.ThumbnailSize, settings.Compact, Grouped, settings.LayoutMode == "Moments");
-        justifiedRows.Clear();
-        foreach (var row in built) justifiedRows.Add(row);
+
+        // Sync incrementally instead of Clear() so realized rows and scroll position stay intact during infinite scroll
+        int samePrefix = 0;
+        int minCount = Math.Min(justifiedRows.Count, built.Count);
+        while (samePrefix < minCount &&
+               string.Equals(justifiedRows[samePrefix].GroupHeader, built[samePrefix].GroupHeader, StringComparison.Ordinal) &&
+               justifiedRows[samePrefix].Items.SequenceEqual(built[samePrefix].Items))
+        {
+            samePrefix++;
+        }
+
+        for (int i = samePrefix; i < minCount; i++)
+            justifiedRows[i] = built[i];
+
+        while (justifiedRows.Count > built.Count)
+            justifiedRows.RemoveAt(justifiedRows.Count - 1);
+
+        for (int i = justifiedRows.Count; i < built.Count; i++)
+            justifiedRows.Add(built[i]);
+
+        if (hadRows && savedOffset > 40 && adaptiveScroll is not null && !restoringPlace)
+            PreserveScrollAfterAppend(adaptiveScroll, savedOffset, queryCancellation);
     }
 
     private void JustifiedList_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (ready && settings.LayoutMode != "Uniform" && Math.Abs(e.NewSize.Width - e.PreviousSize.Width) > 12)
+        if (settings.LayoutMode != "Uniform") EnsureAdaptiveScrollHooked();
+        if (ready && settings.LayoutMode != "Uniform" && Math.Abs(e.NewSize.Width - e.PreviousSize.Width) > 24)
             RebuildAdaptiveRows();
     }
 
@@ -338,7 +385,7 @@ public sealed partial class MainWindow
         {
             queryCancellation?.Cancel(); queryCancellation = new(); var token = queryCancellation.Token;
             loadedStart = startOffset; ResumeNavigation.Visibility = loadedStart > 0 ? Visibility.Visible : Visibility.Collapsed;
-            cursor = null; exhausted = false; loading = false;
+            cursor = null; exhausted = false; loading = false; pendingLoadMore = false;
             foreach (var card in cards) { card.Realized = false; card.Thumbnail = null; card.ThumbnailRequest?.Cancel(); card.ThumbnailRequest = null; }
             cards.Clear(); groups.Clear(); justifiedRows.Clear(); adaptiveSelectedCards.Clear();
             activeQuery = CurrentQuery();
@@ -376,15 +423,21 @@ public sealed partial class MainWindow
                         {
                             monthBuckets = buckets;
                             monthQuery = navQuery;
-                            var wasReady = ready; ready = false;
-                            DateJump.ItemsSource = monthBuckets;
-                            DateJump.SelectedItem = monthBuckets.FirstOrDefault(m => m.Month == selectedMonth);
-                            MonthBrowser.Visibility = !monthBarDismissed && !IsMemories && settings.SortIndex is 0 or 1 or 4 ? Visibility.Visible : Visibility.Collapsed;
-                            var monthIndex = monthBuckets.ToList().FindIndex(m => m.Month == selectedMonth);
-                            NewerMonthButton.IsEnabled = monthIndex > 0;
-                            OlderMonthButton.IsEnabled = monthBuckets.Count > 0 && monthIndex < monthBuckets.Count - 1;
-                            AllMonthsButton.IsEnabled = selectedMonth is not null || fromTicks is not null || beforeTicks is not null;
-                            ready = wasReady;
+                            suppressFilterEvents++;
+                            try
+                            {
+                                DateJump.ItemsSource = monthBuckets;
+                                DateJump.SelectedItem = monthBuckets.FirstOrDefault(m => m.Month == selectedMonth);
+                                MonthBrowser.Visibility = !monthBarDismissed && !IsMemories && settings.SortIndex is 0 or 1 or 4 ? Visibility.Visible : Visibility.Collapsed;
+                                var monthIndex = monthBuckets.ToList().FindIndex(m => m.Month == selectedMonth);
+                                NewerMonthButton.IsEnabled = monthIndex > 0;
+                                OlderMonthButton.IsEnabled = monthBuckets.Count > 0 && monthIndex < monthBuckets.Count - 1;
+                                AllMonthsButton.IsEnabled = selectedMonth is not null || fromTicks is not null || beforeTicks is not null;
+                            }
+                            finally
+                            {
+                                suppressFilterEvents--;
+                            }
                         }
                         UpdateEmptyState();
                     });
@@ -403,14 +456,45 @@ public sealed partial class MainWindow
         }
     }
 
+    private void PreserveScrollAfterAppend(ScrollViewer sv, double savedOffset, CancellationTokenSource? generation)
+    {
+        if (savedOffset <= 40 || restoringPlace) return;
+
+        void TryRestore()
+        {
+            if (restoringPlace || generation != queryCancellation) return;
+            if (sv.ScrollableHeight > 40 && sv.VerticalOffset < Math.Min(24, savedOffset * 0.25))
+            {
+                sv.ChangeView(null, Math.Min(savedOffset, sv.ScrollableHeight), null, true);
+            }
+        }
+
+        if (settings.LayoutMode == "Uniform") MediaGrid.UpdateLayout();
+        else JustifiedRowsList.UpdateLayout();
+
+        TryRestore();
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, TryRestore);
+    }
+
     private async Task LoadMore()
     {
         if (!ready || loading || exhausted || activeQuery is null || queryCancellation is null) return;
         var generation = queryCancellation; var ct = generation.Token; var query = activeQuery with { Offset = cursor is null ? loadedStart : 0, Cursor = cursor, KnownTotal = cursor is null ? null : total };
-        loading = true; Busy.IsActive = true;
+        var isSubsequentPage = cards.Count > 0;
+        loading = true;
+        Busy.IsActive = true;
+        if (isSubsequentPage)
+        {
+            LoadMorePill.Visibility = Visibility.Visible;
+            LoadMoreRing.IsActive = true;
+        }
         try
         {
             var page = await Task.Run(() => catalog.QueryAsync(query, ct), ct); ct.ThrowIfCancellationRequested();
+            var activeScroll = ActiveGalleryScroll();
+            var preservedOffset = activeScroll?.VerticalOffset ?? 0;
+            var hadScroll = isSubsequentPage && preservedOffset > 40;
+
             total = page.Total; cursor = page.Next;
 
             if (settings.StackSimilar)
@@ -439,6 +523,8 @@ public sealed partial class MainWindow
             }
 
             if (settings.LayoutMode != "Uniform") RebuildAdaptiveRows();
+            if (hadScroll && activeScroll is not null)
+                PreserveScrollAfterAppend(activeScroll, preservedOffset, generation);
 
             exhausted = page.Items.Count < query.Limit || loadedStart + cards.Count >= total;
             UpdateEmptyState();
@@ -451,7 +537,28 @@ public sealed partial class MainWindow
             UpdateVisibleTimeRange();
         }
         catch (OperationCanceledException) { }
-        finally { if (generation == queryCancellation) { loading = false; Busy.IsActive = scanning || preparing; } }
+        finally
+        {
+            if (generation == queryCancellation)
+            {
+                loading = false;
+                Busy.IsActive = scanning || preparing;
+                LoadMoreRing.IsActive = false;
+                LoadMorePill.Visibility = Visibility.Collapsed;
+
+                if (pendingLoadMore)
+                {
+                    pendingLoadMore = false;
+                    var sv = ActiveGalleryScroll();
+                    if (ready && !restoringPlace && !exhausted && sv is not null &&
+                        sv.ScrollableHeight > 0 &&
+                        sv.VerticalOffset + sv.ViewportHeight >= sv.ExtentHeight - Math.Max(1400, sv.ViewportHeight * 1.8))
+                    {
+                        DispatcherQueue.TryEnqueue(() => { if (!loading && !exhausted && ready && generation == queryCancellation) _ = Guard(LoadMore); });
+                    }
+                }
+            }
+        }
     }
 
     private void AddCardToActiveCollections(MediaCard card)
@@ -499,12 +606,11 @@ public sealed partial class MainWindow
     private void GalleryLoaded(object sender, RoutedEventArgs e)
     {
         galleryScroll = Descendant<ScrollViewer>(MediaGrid);
-        if (galleryScroll is not null) galleryScroll.ViewChanged += async (_, _) =>
+        if (galleryScroll is not null)
         {
-            SchedulePlaceSave();
-            UpdateVisibleTimeRange();
-            if (ready && !restoringPlace && galleryScroll.VerticalOffset + galleryScroll.ViewportHeight >= galleryScroll.ExtentHeight - 600) await Guard(LoadMore);
-        };
+            galleryScroll.ViewChanged -= OnGalleryScrollViewChanged;
+            galleryScroll.ViewChanged += OnGalleryScrollViewChanged;
+        }
     }
 
     private async void TileChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
@@ -745,7 +851,9 @@ public sealed partial class MainWindow
 
     private async void FilterChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!ready || restoringPlace) return;
+        if (suppressFilterEvents > 0 || !ready || restoringPlace) return;
+        if (ReferenceEquals(sender, Sources) && SelectedSource == activeQuery?.SourceId && Sources.SelectedItem is not null && activeQuery is not null) return;
+        if (ReferenceEquals(sender, SortBox) && Math.Max(0, SortBox.SelectedIndex) == settings.SortIndex && activeQuery is not null) return;
         PushNavigationHistory();
         if (ReferenceEquals(sender, Sources)) FolderFilter.Text = "";
         settings.SortIndex = Math.Max(0, SortBox.SelectedIndex);
@@ -898,7 +1006,8 @@ public sealed partial class MainWindow
 
     private async void JumpDate(object sender, SelectionChangedEventArgs e)
     {
-        if (!ready || restoringPlace || DateJump.SelectedItem is not MonthBucket month) return;
+        if (suppressFilterEvents > 0 || !ready || restoringPlace || DateJump.SelectedItem is not MonthBucket month) return;
+        if (string.Equals(month.Month, selectedMonth, StringComparison.Ordinal) && activeQuery is not null) return;
         await ChooseMonth(month);
     }
 
