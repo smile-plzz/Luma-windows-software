@@ -104,9 +104,10 @@ public sealed class MediaCard : INotifyPropertyChanged
                 if (!string.IsNullOrWhiteSpace(meta.CameraModel)) specs.Add(meta.CameraModel);
                 if (meta.FNumber is double fn) specs.Add($"f/{fn:0.#}");
                 if (meta.Iso is int iso) specs.Add($"ISO {iso}");
+                if (!string.IsNullOrWhiteSpace(meta.LocationName)) specs.Add(meta.LocationName);
                 if (specs.Count > 0) lines.Add(string.Join(" · ", specs));
                 if (meta.Latitude is double lat && meta.Longitude is double lon)
-                    lines.Add($"GPS: {lat:0.0000}, {lon:0.0000}");
+                    lines.Add($"GPS: {lat:0.0000}, {lon:0.0000}" + (meta.LocationOrigin == "manual" ? " (Manual pin)" : ""));
             }
             if (!string.IsNullOrWhiteSpace(Item.Tags)) lines.Add($"Tags: {Item.Tags}");
             if (IsStack) lines.Add($"Stack of {StackItems.Count} ({StackKind})");

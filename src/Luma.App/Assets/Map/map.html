@@ -5,79 +5,150 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Luma Photo Map</title>
 <style>
+  :root {
+    --bg: #171719;
+    --surface: rgba(32, 32, 36, 0.88);
+    --surface-solid: #202024;
+    --control: rgba(255, 255, 255, 0.09);
+    --control-hover: rgba(255, 255, 255, 0.16);
+    --text: #f4f4f5;
+    --muted: #a1a1aa;
+    --border: rgba(255, 255, 255, 0.12);
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --fav: #e09124;
+    --video: #10b981;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+  body.theme-light {
+    --bg: #FAF9F6;
+    --surface: rgba(242, 240, 236, 0.90);
+    --surface-solid: #F2F0EC;
+    --control: rgba(0, 0, 0, 0.06);
+    --control-hover: rgba(0, 0, 0, 0.11);
+    --text: #18181b;
+    --muted: #52525b;
+    --border: rgba(0, 0, 0, 0.10);
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
+  }
   * { box-sizing: border-box; user-select: none; }
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: "Segoe UI", system-ui, sans-serif; background: #1c1d21; color: #f4f4f5; }
-  #map { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: grab; background: #23252a; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  #map { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: grab; background: var(--bg); }
   #map.dragging { cursor: grabbing; }
-  #tiles, #markers { position: absolute; inset: 0; pointer-events: none; }
+  #map.pin-mode { cursor: crosshair; }
+  #tiles, #trailSvg, #markers { position: absolute; inset: 0; }
+  #tiles, #trailSvg { pointer-events: none; }
   #markers { pointer-events: auto; }
-  .tile { position: absolute; width: 256px; height: 256px; image-rendering: auto; pointer-events: none; }
+
+  .tile { position: absolute; width: 256px; height: 256px; image-rendering: auto; pointer-events: none; transition: opacity 0.18s ease; }
+  #map.style-minimal-light .tile { filter: grayscale(85%) brightness(1.04) contrast(0.92); }
+  #map.style-minimal-dark .tile { filter: invert(92%) hue-rotate(180deg) brightness(0.92) contrast(0.94) grayscale(35%); }
+  #map.style-mono .tile { filter: grayscale(100%) contrast(1.06); }
+  #map.style-classic .tile { filter: none; }
+
   .cluster {
     position: absolute; transform: translate(-50%, -50%);
-    min-width: 34px; height: 34px; padding: 0 9px;
-    border-radius: 17px; background: rgba(34, 118, 224, 0.92); color: #fff;
-    border: 2px solid rgba(255,255,255,0.92); box-shadow: 0 3px 10px rgba(0,0,0,0.45);
+    min-width: 34px; height: 34px; padding: 0 10px;
+    border-radius: 17px; background: rgba(37, 99, 235, 0.92); color: #fff;
+    border: 2px solid rgba(255, 255, 255, 0.95); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
     display: flex; align-items: center; justify-content: center;
     font-size: 12px; font-weight: 600; cursor: pointer; transition: transform 0.12s ease;
   }
-  .cluster.fav { background: rgba(218, 132, 24, 0.94); }
-  .cluster:hover { transform: translate(-50%, -50%) scale(1.1); z-index: 20; }
+  .cluster.fav { background: rgba(224, 145, 36, 0.94); }
+  .cluster:hover { transform: translate(-50%, -50%) scale(1.12); z-index: 25; }
+
   .pin {
     position: absolute; transform: translate(-50%, -100%);
-    width: 24px; height: 24px; border-radius: 12px 12px 12px 2px;
+    width: 22px; height: 22px; border-radius: 11px 11px 11px 2px;
     transform-origin: center bottom;
-    background: #2276e0; border: 2px solid #fff; box-shadow: 0 3px 8px rgba(0,0,0,0.45);
+    background: var(--accent); border: 2px solid #fff;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
     cursor: pointer; display: flex; align-items: center; justify-content: center;
-    font-size: 11px; color: #fff;
+    font-size: 10px; color: #fff; transition: transform 0.1s ease;
   }
-  .pin.fav { background: #da8418; }
-  .pin:hover { z-index: 30; filter: brightness(1.15); }
+  .pin.video { background: var(--video); }
+  .pin.fav { background: var(--fav); }
+  .pin.manual { border-style: dashed; }
+  .pin.active { transform: translate(-50%, -100%) scale(1.28); z-index: 40; box-shadow: 0 0 0 4px rgba(59,130,246,0.35); }
+  .pin:hover { z-index: 35; transform: translate(-50%, -100%) scale(1.15); }
+
   .toolbar {
-    position: absolute; top: 14px; left: 14px; right: 14px;
+    position: absolute; top: 12px; left: 12px; right: 12px;
     display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; z-index: 50;
   }
-  .pill-group { display: flex; gap: 6px; pointer-events: auto; background: rgba(24,24,28,0.86); backdrop-filter: blur(10px); padding: 6px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 4px 16px rgba(0,0,0,0.35); }
-  button.btn {
-    background: rgba(255,255,255,0.08); color: #f4f4f5; border: none; border-radius: 7px;
-    padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer;
+  .pill-group {
+    display: flex; align-items: center; gap: 4px; pointer-events: auto;
+    background: var(--surface); backdrop-filter: blur(14px);
+    padding: 5px; border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow);
   }
-  button.btn:hover { background: rgba(255,255,255,0.18); }
-  button.btn.primary { background: #2563eb; color: #fff; }
-  button.btn.primary:hover { background: #1d4ed8; }
+  button.btn, select.btn {
+    background: var(--control); color: var(--text); border: none; border-radius: 8px;
+    padding: 6px 10px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: inherit;
+  }
+  button.btn:hover, select.btn:hover { background: var(--control-hover); }
+  button.btn.primary { background: var(--accent); color: #fff; }
+  button.btn.primary:hover { background: var(--accent-hover); }
+  select.btn option { background: var(--surface-solid); color: var(--text); }
+
+  #pinHint {
+    position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
+    display: none; z-index: 60; pointer-events: none;
+    background: rgba(37, 99, 235, 0.95); color: #fff; padding: 7px 14px;
+    border-radius: 999px; font-size: 12px; font-weight: 600; box-shadow: var(--shadow);
+  }
+
   #popup {
-    position: absolute; display: none; width: 252px; z-index: 80;
-    background: rgba(28, 28, 32, 0.96); backdrop-filter: blur(12px);
-    border: 1px solid rgba(255,255,255,0.16); border-radius: 12px; padding: 10px;
-    box-shadow: 0 12px 32px rgba(0,0,0,0.55); pointer-events: auto;
+    position: absolute; display: none; width: 268px; z-index: 80;
+    background: var(--surface); backdrop-filter: blur(16px);
+    border: 1px solid var(--border); border-radius: 14px; padding: 10px;
+    box-shadow: var(--shadow); pointer-events: auto;
   }
-  #popupThumb { width: 100%; height: 144px; object-fit: cover; border-radius: 8px; background: #111; display: block; margin-bottom: 8px; }
+  #popupThumbWrap { position: relative; width: 100%; height: 148px; border-radius: 10px; overflow: hidden; background: rgba(128,128,128,0.14); margin-bottom: 8px; display: flex; align-items: center; justify-content: center; }
+  #popupThumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #popupThumbFallback { position: absolute; font-size: 11px; color: var(--muted); text-align: center; padding: 8px; display: none; }
   #popupName { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #popupMeta { font-size: 11px; color: #a1a1aa; margin: 4px 0 10px; line-height: 1.4; }
+  #popupMeta { font-size: 11px; color: var(--muted); margin: 4px 0 10px; line-height: 1.45; white-space: pre-line; }
   .popup-actions { display: flex; gap: 6px; }
+
   .attribution {
     position: absolute; bottom: 8px; right: 10px; z-index: 40;
-    background: rgba(20,20,24,0.75); color: #d4d4d8; font-size: 10px; padding: 3px 8px; border-radius: 6px;
+    background: var(--surface); color: var(--muted); border: 1px solid var(--border);
+    font-size: 10px; padding: 3px 8px; border-radius: 6px;
   }
-  .attribution a { color: #93c5fd; text-decoration: none; }
 </style>
 </head>
 <body>
-<div id="map">
+<div id="map" class="style-minimal-dark">
   <div id="tiles"></div>
+  <svg id="trailSvg"></svg>
   <div id="markers"></div>
   <div class="toolbar">
     <div class="pill-group">
       <button class="btn" id="zoomIn" title="Zoom in">+</button>
       <button class="btn" id="zoomOut" title="Zoom out">-</button>
-      <button class="btn" id="fitAll">Fit all pins</button>
-      <span id="statusBadge" style="font-size:12px;padding:6px 8px;color:#d4d4d8;">0 geotagged items</span>
+      <button class="btn" id="fitAll">Fit all</button>
+      <select class="btn" id="styleSelect" title="Map appearance">
+        <option value="minimal-dark">Minimal Dark</option>
+        <option value="minimal-light">Minimal Light</option>
+        <option value="mono">Mono Slate</option>
+        <option value="classic">OSM Streets</option>
+      </select>
+      <span id="statusBadge" style="font-size:12px;padding:4px 8px;color:var(--muted);">0 items</span>
     </div>
     <div class="pill-group">
-      <button class="btn primary" id="filterBoundsBtn">Filter gallery to map area</button>
+      <button class="btn primary" id="filterBoundsBtn">Filter gallery to view</button>
     </div>
   </div>
+  <div id="pinHint">Click anywhere on the map to assign catalog coordinates</div>
   <div id="popup">
-    <img id="popupThumb" alt="Preview" />
+    <div id="popupThumbWrap">
+      <img id="popupThumb" alt="Preview" />
+      <div id="popupThumbFallback">Preview not cached yet</div>
+    </div>
     <div id="popupName"></div>
     <div id="popupMeta"></div>
     <div class="popup-actions">
@@ -94,16 +165,26 @@
   const MAX_ZOOM = 18;
   const mapEl = document.getElementById('map');
   const tilesEl = document.getElementById('tiles');
+  const trailSvg = document.getElementById('trailSvg');
   const markersEl = document.getElementById('markers');
   const statusEl = document.getElementById('statusBadge');
+  const styleSelect = document.getElementById('styleSelect');
+  const pinHintEl = document.getElementById('pinHint');
   const popupEl = document.getElementById('popup');
   const popupThumbEl = document.getElementById('popupThumb');
+  const popupFallbackEl = document.getElementById('popupThumbFallback');
   const popupNameEl = document.getElementById('popupName');
   const popupMetaEl = document.getElementById('popupMeta');
 
-  let state = { centerLat: 20, centerLon: 0, zoom: 2, markers: [], activeItem: null };
+  let state = {
+    centerLat: 20, centerLon: 0, zoom: 2,
+    markers: [], viewMode: 'clusters', pinMode: false,
+    activeItem: null, highlightedKey: null, styleExplicit: false
+  };
   const tileCache = new Map();
+  let viewportTimer = null;
 
+  function markerKey(m) { return `${m.sourceId}\n${m.relativePath}`; }
   function lonToWorldX(lon, z) { return ((lon + 180) / 360) * TILE_SIZE * Math.pow(2, z); }
   function latToWorldY(lat, z) {
     const rad = Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 180;
@@ -114,11 +195,48 @@
     const n = Math.PI - (2 * Math.PI * wy) / (TILE_SIZE * Math.pow(2, z));
     return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
   }
-
   function formatCoord(lat, lon) {
-    const ns = lat >= 0 ? 'N' : 'S';
-    const ew = lon >= 0 ? 'E' : 'W';
-    return `${Math.abs(lat).toFixed(4)} ${ns}, ${Math.abs(lon).toFixed(4)} ${ew}`;
+    return `${Math.abs(lat).toFixed(4)} ${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)} ${lon >= 0 ? 'E' : 'W'}`;
+  }
+
+  function applyStyle(styleName) {
+    mapEl.classList.remove('style-minimal-light', 'style-minimal-dark', 'style-mono', 'style-classic');
+    mapEl.classList.add('style-' + styleName);
+    styleSelect.value = styleName;
+  }
+
+  function applyTheme(theme) {
+    if (theme === 'light') {
+      document.body.classList.add('theme-light');
+      if (!state.styleExplicit) applyStyle('minimal-light');
+    } else {
+      document.body.classList.remove('theme-light');
+      if (!state.styleExplicit) applyStyle('minimal-dark');
+    }
+  }
+
+  function getBounds(w, h, cx, cy, z) {
+    return {
+      minLon: Math.max(-180, worldXToLon(cx - w / 2, z)),
+      maxLon: Math.min(180, worldXToLon(cx + w / 2, z)),
+      maxLat: Math.min(90, worldYToLat(cy - h / 2, z)),
+      minLat: Math.max(-90, worldYToLat(cy + h / 2, z))
+    };
+  }
+
+  function scheduleViewportSync(w, h, cx, cy, z, visibleMarkers) {
+    clearTimeout(viewportTimer);
+    viewportTimer = setTimeout(() => {
+      if (!window.chrome || !window.chrome.webview) return;
+      const b = getBounds(w, h, cx, cy, z);
+      const visibleKeys = visibleMarkers.slice(0, 32).map(m => ({ sourceId: m.sourceId, relativePath: m.relativePath }));
+      window.chrome.webview.postMessage({
+        type: 'viewportChanged',
+        minLat: b.minLat, maxLat: b.maxLat, minLon: b.minLon, maxLon: b.maxLon,
+        visibleCount: visibleMarkers.length,
+        visibleKeys
+      });
+    }, 110);
   }
 
   function render() {
@@ -131,7 +249,6 @@
     const originX = cx - w / 2;
     const originY = cy - h / 2;
 
-    // Render OSM tiles
     const minTileX = Math.floor(originX / TILE_SIZE);
     const maxTileX = Math.floor((originX + w) / TILE_SIZE);
     const minTileY = Math.max(0, Math.floor(originY / TILE_SIZE));
@@ -157,29 +274,41 @@
       }
     }
     for (const [id, img] of tileCache.entries()) {
-      if (!needed.has(id)) {
-        img.remove();
-        tileCache.delete(id);
-      }
+      if (!needed.has(id)) { img.remove(); tileCache.delete(id); }
     }
 
-    // Cluster markers in screen space
-    markersEl.innerHTML = '';
-    const cellSize = z >= 16 ? 26 : 48;
-    const cells = new Map();
-
+    const visibleMarkers = [];
     for (const m of state.markers) {
       const px = lonToWorldX(m.longitude, z) - originX;
       const py = latToWorldY(m.latitude, z) - originY;
-      if (px < -60 || px > w + 60 || py < -60 || py > h + 60) continue;
-      const gx = Math.floor(px / cellSize);
-      const gy = Math.floor(py / cellSize);
-      const key = `${gx}_${gy}`;
+      if (px >= -40 && px <= w + 40 && py >= -40 && py <= h + 40) visibleMarkers.push(m);
+    }
+
+    // Timeline Trail polyline
+    trailSvg.innerHTML = '';
+    if (state.viewMode === 'trail' && state.markers.length > 1) {
+      const ordered = [...state.markers].sort((a, b) => (a.dateTicks || 0) - (b.dateTicks || 0));
+      const pts = ordered.map(m => `${(lonToWorldX(m.longitude, z) - originX).toFixed(1)},${(latToWorldY(m.latitude, z) - originY).toFixed(1)}`);
+      trailSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      poly.setAttribute('points', pts.join(' '));
+      poly.setAttribute('fill', 'none');
+      poly.setAttribute('stroke', 'rgba(59, 130, 246, 0.72)');
+      poly.setAttribute('stroke-width', '2.5');
+      poly.setAttribute('stroke-dasharray', '6 5');
+      trailSvg.appendChild(poly);
+    }
+
+    markersEl.innerHTML = '';
+    const cellSize = state.viewMode === 'pins' ? 10 : (state.viewMode === 'trail' ? 14 : (z >= 16 ? 24 : 46));
+    const cells = new Map();
+
+    for (const m of visibleMarkers) {
+      const px = lonToWorldX(m.longitude, z) - originX;
+      const py = latToWorldY(m.latitude, z) - originY;
+      const key = `${Math.floor(px / cellSize)}_${Math.floor(py / cellSize)}`;
       let c = cells.get(key);
-      if (!c) {
-        c = { items: [], sumLat: 0, sumLon: 0, fav: false };
-        cells.set(key, c);
-      }
+      if (!c) { c = { items: [], sumLat: 0, sumLon: 0, fav: false }; cells.set(key, c); }
       c.items.push(m);
       c.sumLat += m.latitude;
       c.sumLon += m.longitude;
@@ -195,11 +324,16 @@
       if (c.items.length === 1) {
         const m = c.items[0];
         const pin = document.createElement('div');
-        pin.className = 'pin' + (m.favorite ? ' fav' : '');
+        const cls = ['pin'];
+        if (m.favorite) cls.push('fav');
+        else if (m.kind === 'video') cls.push('video');
+        if (m.origin === 'manual') cls.push('manual');
+        if (state.highlightedKey && markerKey(m) === state.highlightedKey) cls.push('active');
+        pin.className = cls.join(' ');
         pin.style.left = `${px}px`;
         pin.style.top = `${py}px`;
-        pin.title = m.name;
-        pin.textContent = m.favorite ? '★' : '';
+        pin.title = m.locationName ? `${m.name} (${m.locationName})` : m.name;
+        pin.textContent = m.favorite ? '★' : (m.kind === 'video' ? '▶' : '');
         pin.addEventListener('click', (e) => { e.stopPropagation(); showPopup(m, px, py); });
         markersEl.appendChild(pin);
       } else {
@@ -207,7 +341,7 @@
         el.className = 'cluster' + (c.fav ? ' fav' : '');
         el.style.left = `${px}px`;
         el.style.top = `${py}px`;
-        el.textContent = String(c.items.length);
+        el.textContent = c.items.length > 999 ? `${Math.round(c.items.length / 1000)}k` : String(c.items.length);
         el.addEventListener('click', (e) => {
           e.stopPropagation();
           hidePopup();
@@ -223,18 +357,26 @@
         markersEl.appendChild(el);
       }
     }
+
+    scheduleViewportSync(w, h, cx, cy, z, visibleMarkers);
   }
 
   function showPopup(m, px, py) {
     state.activeItem = m;
+    state.highlightedKey = markerKey(m);
     popupNameEl.textContent = m.name;
-    popupMetaEl.textContent = `${m.dateText}\n${formatCoord(m.latitude, m.longitude)}`;
-    popupMetaEl.style.whiteSpace = 'pre-line';
+    const placeLine = m.locationName ? `${m.locationName}\n` : '';
+    const camLine = m.cameraModel ? `${m.cameraModel} · ` : '';
+    const originTag = m.origin === 'manual' ? ' (Manual pin)' : (m.kind === 'video' ? ' · Video' : '');
+    popupMetaEl.textContent = `${placeLine}${camLine}${m.dateText}\n${formatCoord(m.latitude, m.longitude)}${originTag}`;
+    popupThumbEl.style.display = 'none';
     popupThumbEl.src = '';
+    popupFallbackEl.style.display = 'block';
+
     const w = mapEl.clientWidth || 800;
     const h = mapEl.clientHeight || 600;
-    popupEl.style.left = `${Math.max(12, Math.min(w - 264, px - 126))}px`;
-    popupEl.style.top = `${Math.max(60, Math.min(h - 240, py - 245))}px`;
+    popupEl.style.left = `${Math.max(12, Math.min(w - 280, px - 134))}px`;
+    popupEl.style.top = `${Math.max(64, Math.min(h - 256, py - 258))}px`;
     popupEl.style.display = 'block';
     if (window.chrome && window.chrome.webview) {
       window.chrome.webview.postMessage({ type: 'requestThumb', sourceId: m.sourceId, relativePath: m.relativePath });
@@ -244,10 +386,11 @@
   function hidePopup() {
     popupEl.style.display = 'none';
     state.activeItem = null;
+    state.highlightedKey = null;
   }
 
   function fitAll() {
-    if (!state.markers.length) return;
+    if (!state.markers.length) { render(); return; }
     let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
     for (const m of state.markers) {
       if (m.latitude < minLat) minLat = m.latitude;
@@ -257,9 +400,7 @@
     }
     state.centerLat = (minLat + maxLat) / 2;
     state.centerLon = (minLon + maxLon) / 2;
-    const latSpan = Math.max(0.01, maxLat - minLat);
-    const lonSpan = Math.max(0.01, maxLon - minLon);
-    const maxSpan = Math.max(latSpan, lonSpan);
+    const maxSpan = Math.max(0.01, maxLat - minLat, maxLon - minLon);
     if (maxSpan > 120) state.zoom = 2;
     else if (maxSpan > 40) state.zoom = 4;
     else if (maxSpan > 10) state.zoom = 6;
@@ -269,20 +410,21 @@
     render();
   }
 
-  // Pan & Zoom interactions
-  let dragging = false, lastX = 0, lastY = 0;
+  let dragging = false, movedDist = 0, lastX = 0, lastY = 0;
   mapEl.addEventListener('mousedown', (e) => {
     if (e.target !== mapEl && e.target !== markersEl) return;
     dragging = true;
+    movedDist = 0;
     lastX = e.clientX;
     lastY = e.clientY;
-    mapEl.classList.add('dragging');
+    if (!state.pinMode) mapEl.classList.add('dragging');
     hidePopup();
   });
   window.addEventListener('mousemove', (e) => {
     if (!dragging) return;
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
+    movedDist += Math.abs(dx) + Math.abs(dy);
     lastX = e.clientX;
     lastY = e.clientY;
     const cx = lonToWorldX(state.centerLon, state.zoom) - dx;
@@ -291,16 +433,29 @@
     state.centerLat = Math.max(-85, Math.min(85, worldYToLat(cy, state.zoom)));
     render();
   });
-  window.addEventListener('mouseup', () => { dragging = false; mapEl.classList.remove('dragging'); });
+  window.addEventListener('mouseup', (e) => {
+    if (dragging && state.pinMode && movedDist < 6) {
+      const rect = mapEl.getBoundingClientRect();
+      const w = mapEl.clientWidth || 800;
+      const h = mapEl.clientHeight || 600;
+      const wx = lonToWorldX(state.centerLon, state.zoom) - w / 2 + (e.clientX - rect.left);
+      const wy = latToWorldY(state.centerLat, state.zoom) - h / 2 + (e.clientY - rect.top);
+      const lat = Math.max(-85, Math.min(85, worldYToLat(wy, state.zoom)));
+      const lon = Math.max(-180, Math.min(180, worldXToLon(wx, state.zoom)));
+      if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage({ type: 'pickedCoord', lat, lon });
+      }
+    }
+    dragging = false;
+    mapEl.classList.remove('dragging');
+  });
   mapEl.addEventListener('wheel', (e) => {
     e.preventDefault();
     const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, state.zoom + (e.deltaY < 0 ? 1 : -1)));
-    if (nextZoom !== state.zoom) {
-      state.zoom = nextZoom;
-      render();
-    }
+    if (nextZoom !== state.zoom) { state.zoom = nextZoom; render(); }
   }, { passive: false });
 
+  styleSelect.addEventListener('change', () => { state.styleExplicit = true; applyStyle(styleSelect.value); });
   document.getElementById('zoomIn').addEventListener('click', () => { state.zoom = Math.min(MAX_ZOOM, state.zoom + 1); render(); });
   document.getElementById('zoomOut').addEventListener('click', () => { state.zoom = Math.max(MIN_ZOOM, state.zoom - 1); render(); });
   document.getElementById('fitAll').addEventListener('click', fitAll);
@@ -313,14 +468,9 @@
   document.getElementById('filterBoundsBtn').addEventListener('click', () => {
     const w = mapEl.clientWidth || 800;
     const h = mapEl.clientHeight || 600;
-    const cx = lonToWorldX(state.centerLon, state.zoom);
-    const cy = latToWorldY(state.centerLat, state.zoom);
-    const minLon = Math.max(-180, worldXToLon(cx - w / 2, state.zoom));
-    const maxLon = Math.min(180, worldXToLon(cx + w / 2, state.zoom));
-    const maxLat = Math.min(90, worldYToLat(cy - h / 2, state.zoom));
-    const minLat = Math.max(-90, worldYToLat(cy + h / 2, state.zoom));
+    const b = getBounds(w, h, lonToWorldX(state.centerLon, state.zoom), latToWorldY(state.centerLat, state.zoom), state.zoom);
     if (window.chrome && window.chrome.webview) {
-      window.chrome.webview.postMessage({ type: 'filterBounds', minLat, maxLat, minLon, maxLon });
+      window.chrome.webview.postMessage({ type: 'filterBounds', minLat: b.minLat, maxLat: b.maxLat, minLon: b.minLon, maxLon: b.maxLon });
     }
   });
 
@@ -330,14 +480,30 @@
       if (!msg) return;
       if (msg.type === 'setMarkers') {
         state.markers = msg.markers || [];
-        statusEl.textContent = `${state.markers.length.toLocaleString()} geotagged item(s)`;
+        if (msg.theme) applyTheme(msg.theme);
+        if (msg.viewMode) state.viewMode = msg.viewMode;
+        statusEl.textContent = `${state.markers.length.toLocaleString()} item(s)`;
         fitAll();
+      } else if (msg.type === 'setViewMode' && msg.viewMode) {
+        state.viewMode = msg.viewMode;
+        render();
+      } else if (msg.type === 'setTheme' && msg.theme) {
+        applyTheme(msg.theme);
+      } else if (msg.type === 'setPinMode') {
+        state.pinMode = !!msg.enabled;
+        mapEl.classList.toggle('pin-mode', state.pinMode);
+        pinHintEl.style.display = state.pinMode ? 'block' : 'none';
       } else if (msg.type === 'thumb' && state.activeItem && msg.sourceId === state.activeItem.sourceId && msg.relativePath === state.activeItem.relativePath) {
-        popupThumbEl.src = msg.dataUri || '';
+        if (msg.dataUri) {
+          popupThumbEl.src = msg.dataUri;
+          popupThumbEl.style.display = 'block';
+          popupFallbackEl.style.display = 'none';
+        }
       } else if (msg.type === 'focusPin' && msg.lat != null && msg.lon != null) {
         state.centerLat = msg.lat;
         state.centerLon = msg.lon;
-        state.zoom = 14;
+        state.zoom = Math.max(state.zoom, 13);
+        if (msg.sourceId && msg.relativePath) state.highlightedKey = `${msg.sourceId}\n${msg.relativePath}`;
         render();
       }
     });
@@ -349,4 +515,3 @@
 </script>
 </body>
 </html>
-

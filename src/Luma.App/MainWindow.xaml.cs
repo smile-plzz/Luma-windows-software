@@ -309,10 +309,13 @@ public sealed partial class MainWindow : Window
         if (meta?.ExposureSeconds is double exp) camParts.Add(exp < 1 && exp > 0 ? $"1/{Math.Round(1 / exp)}s" : $"{exp:0.##}s");
         if (meta?.Iso is int iso) camParts.Add($"ISO {iso}");
         var camLine = camParts.Count > 0 ? "\nCamera: " + string.Join(" · ", camParts) : "";
-        var gpsLine = meta?.Latitude is double lat && meta.Longitude is double lon ? $"\nGPS: {lat:0.00000}, {lon:0.00000}" : "";
+        var placeLine = !string.IsNullOrWhiteSpace(meta?.LocationName) ? $"\nPlace: {meta.LocationName}" : "";
+        var originNote = meta?.LocationOrigin == "manual" ? " (Manual pin)" : "";
+        var gpsLine = meta?.Latitude is double lat && meta.Longitude is double lon ? $"\nGPS: {lat:0.00000}, {lon:0.00000}{originNote}" : "";
         InspectorMapButton.Visibility = meta?.Latitude is not null ? Visibility.Visible : Visibility.Collapsed;
+        InspectorPinLocationButton.Visibility = card is not null ? Visibility.Visible : Visibility.Collapsed;
 
-        SelectionText.Text = card is null ? "Select media to inspect" : $"{card.Name}\n\n{card.Item.Media.RelativePath}\n\n{card.Item.Media.Length / 1024d:N0} KB · {card.Item.Media.Kind}\n{dimensions}\n{(meta?.DurationSeconds > 0 ? TimeSpan.FromSeconds(meta.DurationSeconds).ToString(@"hh\:mm\:ss") : "")}\n\nTaken: {taken}\nModified: {new DateTime(card.Item.Media.ModifiedTicks, DateTimeKind.Utc).ToLocalTime():dd MMM yyyy HH:mm:ss}\n{meta?.DateOrigin}{camLine}{gpsLine}\n\n{(card.Item.Media.IsAvailable ? "Source connected" : "Offline preview · reconnect to open original")}";
+        SelectionText.Text = card is null ? "Select media to inspect" : $"{card.Name}\n\n{card.Item.Media.RelativePath}\n\n{card.Item.Media.Length / 1024d:N0} KB · {card.Item.Media.Kind}\n{dimensions}\n{(meta?.DurationSeconds > 0 ? TimeSpan.FromSeconds(meta.DurationSeconds).ToString(@"hh\:mm\:ss") : "")}\n\nTaken: {taken}\nModified: {new DateTime(card.Item.Media.ModifiedTicks, DateTimeKind.Utc).ToLocalTime():dd MMM yyyy HH:mm:ss}\n{meta?.DateOrigin}{camLine}{placeLine}{gpsLine}\n\n{(card.Item.Media.IsAvailable ? "Source connected" : "Offline preview · reconnect to open original")}";
     }
     private void GridRightTapped(object sender, RightTappedRoutedEventArgs e)
     {
@@ -492,7 +495,16 @@ public sealed partial class MainWindow : Window
         var dialog = new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = title, Content = input, PrimaryButtonText = "Save", CloseButtonText = "Cancel" };
         return await dialog.ShowAsync() == ContentDialogResult.Primary ? input.Text.Trim() : null;
     }
-    private void ApplyTheme() => Root.RequestedTheme = Enum.TryParse<ElementTheme>(settings.Theme, out var theme) ? theme : ElementTheme.Default;
+    private void ApplyTheme()
+    {
+        Root.RequestedTheme = Enum.TryParse<ElementTheme>(settings.Theme, out var theme) ? theme : ElementTheme.Default;
+        if (MapOverlay.Visibility == Visibility.Visible)
+        {
+            RenderOfflineCanvas();
+            if (mapWebReady && mapWebView?.CoreWebView2 is not null)
+                mapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "setTheme", theme = Root.ActualTheme == ElementTheme.Light ? "light" : "dark" }));
+        }
+    }
     private async void Settings(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
         var theme = new ComboBox { Header = "Theme", ItemsSource = new[] { "Default", "Light", "Dark" }, SelectedItem = settings.Theme };
@@ -584,7 +596,7 @@ public sealed partial class MainWindow : Window
         }
         else if (MapOverlay.Visibility == Visibility.Visible)
         {
-            MapOverlay.Visibility = Visibility.Collapsed;
+            CloseMapView(this, new RoutedEventArgs());
             e.Handled = true;
         }
         else if (GetSelectedCards().Length > 0)

@@ -220,6 +220,24 @@ public sealed class UpgradeTests : IDisposable
             Assert.Contains("longitude", cols);
             Assert.Contains("camera_model", cols);
             Assert.Contains("iso", cols);
+            Assert.Contains("location_name", cols);
+            Assert.Contains("location_origin", cols);
+            Assert.Contains("meta_version", cols);
         }
+
+        // Verify newly added metadata rows from earlier versions default to meta_version=0 for backfill
+        await using (var db = new SqliteConnection($"Data Source={DbPath}"))
+        {
+            await db.OpenAsync();
+            await using var cmd = db.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO metadata(source_id, relative_path, length, modified_ticks, taken_ticks, date_origin, width, height, duration, orientation)
+                VALUES('src-test', 'item1.png', 512, 638300000000000000, NULL, 'Modification date fallback', 100, 100, 0, 1);
+                """;
+            await cmd.ExecuteNonQueryAsync();
+        }
+        var pendingCount = await catalog.CountPendingMetadataBackfillAsync("src-test", new[] { "src-test" });
+        Assert.Equal(1, pendingCount);
+        Assert.Equal(0, await catalog.CountPendingMetadataBackfillAsync("src-test", Array.Empty<string>()));
     }
 }

@@ -284,4 +284,216 @@ public class NewFeaturesTests : IDisposable
         var seeded = await catalog.SmartCollectionsAsync();
         Assert.Equal(4, seeded.Count);
     }
+
+    private sealed class MapResolver(Dictionary<string, string> roots) : ISourceResolver
+    {
+        public string? ResolveRoot(string sourceId) => roots.GetValueOrDefault(sourceId);
+    }
+
+    private sealed class StubGpsReader : IMetadataReader
+    {
+        public int Calls { get; private set; }
+        public Task<MediaMetadata> ReadAsync(string path, string kind, CancellationToken ct)
+        {
+            Calls++;
+            var extracted = MinimalGpsExtractor.ExtractFromFile(path);
+            return Task.FromResult(new MediaMetadata(
+                null,
+                "Modification date fallback",
+                1200, 900, 0, 1,
+                extracted.Latitude,
+                extracted.Longitude,
+                LocationName: extracted.LocationName,
+                LocationOrigin: extracted.Origin));
+        }
+    }
+
+    private static byte[] BuildSyntheticJpegWithCoarseExifGps(uint latDeg, uint latMin, uint lonDeg, uint lonMin)
+    {
+        using var tiff = new MemoryStream();
+        using var bw = new BinaryWriter(tiff);
+        bw.Write(new byte[] { (byte)'I', (byte)'I', 42, 0 });
+        bw.Write((uint)8); // IFD0 offset
+
+        // IFD0: 1 entry (0x8825 GPSInfo pointer)
+        bw.Write((ushort)1);
+        bw.Write((ushort)0x8825); bw.Write((ushort)4); bw.Write((uint)1); bw.Write((uint)(8 + 2 + 12 + 4)); // offset 26
+        bw.Write((uint)0); // next IFD
+
+        // GPS IFD at 26: 2 entries (0x0002 Lat, 0x0004 Lon) — intentionally omits Ref tags (1 & 3)
+        bw.Write((ushort)2);
+        var latRatOffset = (uint)(26 + 2 + 24 + 4); // 56
+        var lonRatOffset = latRatOffset + 24;        // 80
+        bw.Write((ushort)0x0002); bw.Write((ushort)5); bw.Write((uint)3); bw.Write(latRatOffset);
+        bw.Write((ushort)0x0004); bw.Write((ushort)5); bw.Write((uint)3); bw.Write(lonRatOffset);
+        bw.Write((uint)0);
+
+        // Lat rational [deg, min, 0]
+        bw.Write(latDeg); bw.Write((uint)1);
+        bw.Write(latMin); bw.Write((uint)1);
+        bw.Write((uint)0); bw.Write((uint)1);
+
+        // Lon rational [deg, min, 0]
+        bw.Write(lonDeg); bw.Write((uint)1);
+        bw.Write(lonMin); bw.Write((uint)1);
+        bw.Write((uint)0); bw.Write((uint)1);
+
+        var tiffBytes = tiff.ToArray();
+        using var jpeg = new MemoryStream();
+        jpeg.Write([0xFF, 0xD8, 0xFF, 0xE1]);
+        var segLen = (ushort)(2 + 6 + tiffBytes.Length);
+        jpeg.Write([(byte)(segLen >> 8), (byte)(segLen & 0xFF)]);
+        jpeg.Write("Exif\0\0"u8);
+        jpeg.Write(tiffBytes);
+        jpeg.Write([0xFF, 0xDA, 0xFF, 0xD9]);
+        return jpeg.ToArray();
+    }
+
+    private static byte[] BuildSyntheticMp4WithIso6709(string isoString)
+    {
+        static byte[] Box(string type, byte[] payload)
+        {
+            var buf = new byte[8 + payload.Length];
+            var size = (uint)buf.Length;
+            buf[0] = (byte)(size >> 24);
+            buf[1] = (byte)(size >> 16);
+            buf[2] = (byte)(size >> 8);
+            buf[3] = (byte)size;
+            System.Text.Encoding.Latin1.GetBytes(type, 0, 4, buf, 4);
+            Buffer.BlockCopy(payload, 0, buf, 8, payload.Length);
+            return buf;
+        }
+
+        var isoBytes = System.Text.Encoding.UTF8.GetBytes(isoString);
+        var xyzPayload = new byte[4 + isoBytes.Length];
+        xyzPayload[0] = (byte)(isoBytes.Length >> 8);
+        xyzPayload[1] = (byte)(isoBytes.Length & 0xFF);
+        Buffer.BlockCopy(isoBytes, 0, xyzPayload, 4, isoBytes.Length);
+
+        var xyzBox = Box("\u00A9xyz", xyzPayload);
+        var udtaBox = Box("udta", xyzBox);
+        var moovBox = Box("moov", udtaBox);
+        var ftypBox = Box("ftyp", "isom\0\0\u0002\0isommp41"u8.ToArray());
+
+        var combined = new byte[ftypBox.Length + moovBox.Length];
+        Buffer.BlockCopy(ftypBox, 0, combined, 0, ftypBox.Length);
+        Buffer.BlockCopy(moovBox, 0, combined, ftypBox.Length, moovBox.Length);
+        return combined;
+    }
+
+    [Fact]
+    public void MinimalGpsExtractor_ExtractsCoarseJpegExifSidecarXmpAndMp4Iso6709()
+    {
+        var dir = Path.Combine(tempDir, "Extractors");
+        Directory.CreateDirectory(dir);
+
+        // 1. Minimal JPEG EXIF without N/E Ref tags (23 deg 48 min = 23.8, 90 deg 24 min = 90.4)
+        var jpgPath = Path.Combine(dir, "coarse.jpg");
+        File.WriteAllBytes(jpgPath, BuildSyntheticJpegWithCoarseExifGps(23, 48, 90, 24));
+        var jpgLoc = MinimalGpsExtractor.ExtractFromFile(jpgPath);
+        Assert.True(jpgLoc.HasCoordinates);
+        Assert.InRange(jpgLoc.Latitude!.Value, 23.79, 23.81);
+        Assert.InRange(jpgLoc.Longitude!.Value, 90.39, 90.41);
+
+        // 2. Photo with adjacent .xmp sidecar containing DMS coords + City/Country
+        var rawPath = Path.Combine(dir, "frame.dng");
+        File.WriteAllBytes(rawPath, [1, 2, 3, 4]);
+        File.WriteAllText(rawPath + ".xmp", """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description xmlns:exif="http://ns.adobe.com/exif/1.0/" xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
+                  exif:GPSLatitude="35,40.572N" exif:GPSLongitude="139,39.018E"
+                  photoshop:City="Tokyo" photoshop:Country="Japan" />
+              </rdf:RDF>
+            </x:xmpmeta>
+            """);
+        var xmpLoc = MinimalGpsExtractor.ExtractFromFile(rawPath);
+        Assert.True(xmpLoc.HasCoordinates);
+        Assert.InRange(xmpLoc.Latitude!.Value, 35.67, 35.68);
+        Assert.InRange(xmpLoc.Longitude!.Value, 139.65, 139.66);
+        Assert.Equal("Tokyo, Japan", xmpLoc.LocationName);
+        Assert.Equal("sidecar", xmpLoc.Origin);
+
+        // 3. MP4 video with moov -> udta -> ©xyz ISO-6709 string
+        var mp4Path = Path.Combine(dir, "clip.mp4");
+        File.WriteAllBytes(mp4Path, BuildSyntheticMp4WithIso6709("+48.8566+002.3522+035.0/"));
+        var mp4Loc = MinimalGpsExtractor.ExtractFromFile(mp4Path);
+        Assert.True(mp4Loc.HasCoordinates);
+        Assert.InRange(mp4Loc.Latitude!.Value, 48.85, 48.86);
+        Assert.InRange(mp4Loc.Longitude!.Value, 2.35, 2.36);
+        Assert.Equal("video-iso6709", mp4Loc.Origin);
+    }
+
+    [Fact]
+    public async Task MapBackfillManualPinsAndLocationQueries_WorkTogetherSafely()
+    {
+        var dir = Path.Combine(tempDir, "MapBackfill");
+        Directory.CreateDirectory(Path.Combine(dir, "100%_trips"));
+        var clipPath = Path.Combine(dir, "100%_trips", "video_1.mp4");
+        var photoPath = Path.Combine(dir, "manual.jpg");
+        var tagOnlyPath = Path.Combine(dir, "place_only.dng");
+
+        File.WriteAllBytes(clipPath, BuildSyntheticMp4WithIso6709("+35.6762+139.6503/"));
+        File.WriteAllBytes(photoPath, BuildSyntheticJpegWithCoarseExifGps(23, 48, 90, 24));
+        File.WriteAllBytes(tagOnlyPath, [1, 2, 3, 4]);
+        File.WriteAllText(tagOnlyPath + ".xmp", """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
+                  photoshop:City="Kyoto" photoshop:Country="Japan" />
+              </rdf:RDF>
+            </x:xmpmeta>
+            """);
+
+        var resolver = new MapResolver(new Dictionary<string, string> { ["s1"] = dir });
+        var scopedCatalog = new MediaCache(catalogPath, resolver);
+        await scopedCatalog.ScanAsync("s1", dir);
+
+        var clip = (await scopedCatalog.GetItemAsync("s1", Path.Combine("100%_trips", "video_1.mp4")))!;
+        var manual = (await scopedCatalog.GetItemAsync("s1", "manual.jpg"))!;
+        Assert.NotNull(clip);
+        Assert.NotNull(manual);
+
+        // Simulate legacy v0.6.0 metadata rows (meta_version = 0, no GPS yet) and manual catalog pin
+        var existingTaken = new DateTime(2024, 3, 1, 10, 0, 0, DateTimeKind.Utc).Ticks;
+        await scopedCatalog.SaveMetadataAsync(clip.Media, new MediaMetadata(existingTaken, "legacy", 1920, 1080, MetaVersion: 0));
+        await scopedCatalog.AssignLocationAsync([manual.Media], 40.7128, -74.0060, "New York, USA");
+
+        Assert.Equal(3, await scopedCatalog.CountPendingMetadataBackfillAsync("s1", ["s1"]));
+
+        var stubReader = new StubGpsReader();
+        var updated = await scopedCatalog.EnrichAsync(stubReader, "s1");
+        Assert.Equal(3, updated);
+        Assert.Equal(0, await scopedCatalog.EnrichAsync(stubReader, "s1"));
+        Assert.Equal(0, await scopedCatalog.CountPendingMetadataBackfillAsync("s1", ["s1"]));
+
+        // Verify legacy video got coordinates while keeping its existing taken_ticks, and manual pin survived unchanged
+        var clipAfter = (await scopedCatalog.GetItemAsync("s1", Path.Combine("100%_trips", "video_1.mp4")))!;
+        Assert.InRange(clipAfter.Metadata!.Latitude!.Value, 35.67, 35.68);
+        Assert.Equal(existingTaken, clipAfter.Metadata.TakenTicks);
+
+        var manualAfter = (await scopedCatalog.GetItemAsync("s1", "manual.jpg"))!;
+        Assert.Equal("manual", manualAfter.Metadata!.LocationOrigin);
+        Assert.InRange(manualAfter.Metadata.Latitude!.Value, 40.71, 40.72);
+        Assert.Equal("New York, USA", manualAfter.Metadata.LocationName);
+
+        // Verify map filters, place-tagged unlocated list, summary counts, and location: search token
+        var summary = await scopedCatalog.QueryMapSummaryAsync(new LibraryQuery());
+        Assert.Equal(2, summary.GeotaggedCount);
+        Assert.Equal(1, summary.ManualPinCount);
+        Assert.Equal(1, summary.PlaceTagOnlyCount);
+        Assert.Equal(1, summary.UnlocatedCount);
+
+        var placeOnly = await scopedCatalog.QueryPlaceTaggedWithoutCoordsAsync(new LibraryQuery());
+        Assert.Single(placeOnly);
+        Assert.Equal("Kyoto, Japan", placeOnly[0].LocationName);
+
+        var manualMarkers = await scopedCatalog.QueryGeotaggedMarkersAsync(new LibraryQuery(LocationOriginFilter: "manual"));
+        Assert.Single(manualMarkers);
+        Assert.Equal("manual.jpg", manualMarkers[0].Name);
+
+        var kyotoSearch = await scopedCatalog.QueryAsync(new LibraryQuery(Search: "location:Kyoto"));
+        Assert.Single(kyotoSearch.Items);
+        Assert.Equal("place_only.dng", kyotoSearch.Items[0].Media.RelativePath);
+    }
 }

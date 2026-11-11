@@ -120,3 +120,21 @@ Luma: Agent Swarm Handoff (v0.6.0 to v1.0.0)
 - `scripts/Smoke-Test.ps1`: Post-edit run verified startup, 260-item scrolling, and Search & Favorites before being canceled during album steps upon user request to finalize the executable build; full end-to-end UIA smoke remains to be completed in CI or standalone shell.
 - Clean Release publish: `dotnet publish src/Luma.App/Luma.App.csproj -c Release -r win-x64 -p:Platform=x64 -o artifacts/Luma-win-x64` (`FileVersion=0.7.0.0`, `MainWindowXbf=True`, `MapHtml=True`, SHA-256 `D5209A56DFADAF3A39EEE3CC650977214251736A9F03861705C1BAA3F2FECC0E`).
 - Portable ZIP package: `artifacts/Luma-win-x64.zip` (`82.65 MB`, SHA-256 `51E4A6EB2C072586B4CEEA5BC8D8D305D460AAF282CE6C6B9EBEF768E7C1AFC9`).
+
+
+---
+
+## Map Enhancement & Minimal Location Extraction (`2026-11-12T01:30:00+06:00`)
+
+### Implemented
+- **Minimal Coordinate & Location Header Parser ([MinimalGpsExtractor.cs](src/Luma.Core/MinimalGpsExtractor.cs)):** Added cross-platform, strictly read-only bounded container/header reader covering JPEG EXIF/XMP (including omitted `N`/`E`/`S`/`W` refs and coarse DMS), TIFF/DNG/RAW GPS IFD, PNG (`eXIf` + `tEXt`/`iTXt`/`zTXt`), WebP (`EXIF`/`XMP `), HEIC/HEIF (`meta`/`iinf`/`iloc`/`Exif` & XMP), MP4/MOV/M4V/3GP QuickTime ISO-6709 atoms (`udta/©xyz` and `meta/keys+ilst`), adjacent `.xmp` sidecars, and place-name metadata (`City`, `State`, `Country`, `AreaInformation`).
+- **Windows Reader Integration & Legacy Catalog Backfill ([WindowsMetadataReader.cs](src/Luma.Windows/WindowsMetadataReader.cs), [Organization.cs](src/Luma.Core/Organization.cs)):** Added Windows Shell GPS rational property fallbacks and `MinimalGpsExtractor` fallback across photos, videos, and codec-less RAW/HEIC formats. Added additive schema columns (`location_name`, `location_origin`, `meta_version DEFAULT 0`) and updated `EnrichAsync` to re-process legacy/unchecked rows (`meta_version < 2`) while preserving existing `taken_ticks` and catalog-only `manual` pins. Added `AssignLocationAsync` and `CountPendingMetadataBackfillAsync`.
+- **Map Queries & Exact Item Resolution ([LibraryQueries.cs](src/Luma.Core/LibraryQueries.cs)):** Added exact `GetItemAsync` lookup (fixing map popup thumbnail loading on paths containing `%`/`_` or directories), `QueryPlaceTaggedWithoutCoordsAsync`, `QueryUnlocatedItemsAsync`, `QueryMapSummaryAsync`, `LocationOriginFilter`, and `location:` search token.
+- **Modern Minimal Map Workspace ([MainWindow.xaml](src/Luma.App/MainWindow.xaml), [MainWindow.Map.cs](src/Luma.App/MainWindow.Map.cs), [OfflineWorldMap.cs](src/Luma.App/OfflineWorldMap.cs), [map.html](src/Luma.App/Assets/Map/map.html)):** Added automatic cancellable connected-source GPS backfill when opening Map View, isolated `WebView2` `UserDataFolder` inside `%LOCALAPPDATA%\Luma\webview2`, floating filter strip (`All`/`Photos`/`Videos`, `Favorites`, `Year`, `Source`, `Origin`, search), view modes (`Clusters`, `Pins`, `Trail`), CSS-themed OSM map styles (`Minimal Dark`, `Minimal Light`, `Mono Slate`, `OSM Streets`), interactive offline vector world canvas prior to online consent, collapsible drawer tabs (`Clusters`, `Place tags`, `Unlocated`), viewport thumbnail filmstrip, and catalog-only Pin mode.
+
+### Verification
+- `dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release`: 113 passed, 0 failed, 0 skipped.
+- `dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release`: 6 passed, 0 failed, 0 skipped.
+- Clean Release publish: `dotnet publish src/Luma.App/Luma.App.csproj -c Release -r win-x64 -p:Platform=x64 -o artifacts/Luma-v0.7.0-win-x64` (`FileVersion=0.7.0.0`, `MainWindowXbf=True`, `MapHtml=True`, SHA-256 `8A806E3A742AC2DCFD72D883D1214BF3BD54488B2B67C9ED5DBBB3AC4D8B9127`).
+- Portable ZIP package: `artifacts/Luma-v0.7.0-win-x64.zip` (`82.66 MB`, SHA-256 `BB9E823564883635069CA9F5C308338B0F63D8DE68DF690E78149257C8FE8D17`).
+- `scripts/Smoke-Test.ps1`: Added UIA checks for `Scan GPS` and `Trail` inside the Map overlay; full end-to-end UIA smoke awaits standalone/CI execution while `artifacts/Luma-win-x64/Luma.App.exe` (PID 3868) remains open on desktop.

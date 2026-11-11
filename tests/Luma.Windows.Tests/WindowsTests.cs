@@ -136,4 +136,65 @@ public sealed class WindowsTests
         }
         finally { Directory.Delete(root, true); }
     }
+
+    [Fact]
+    public async Task WindowsMetadataReader_FallsBackToQuickTimeIso6709AndSidecarXmp()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Luma-fallback-gps-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            static byte[] Box(string type, byte[] payload)
+            {
+                var buf = new byte[8 + payload.Length];
+                var size = (uint)buf.Length;
+                buf[0] = (byte)(size >> 24);
+                buf[1] = (byte)(size >> 16);
+                buf[2] = (byte)(size >> 8);
+                buf[3] = (byte)size;
+                System.Text.Encoding.Latin1.GetBytes(type, 0, 4, buf, 4);
+                Buffer.BlockCopy(payload, 0, buf, 8, payload.Length);
+                return buf;
+            }
+
+            var isoBytes = System.Text.Encoding.UTF8.GetBytes("+37.7749-122.4194+010.500/");
+            var xyzPayload = new byte[4 + isoBytes.Length];
+            xyzPayload[0] = (byte)(isoBytes.Length >> 8);
+            xyzPayload[1] = (byte)(isoBytes.Length & 0xFF);
+            Buffer.BlockCopy(isoBytes, 0, xyzPayload, 4, isoBytes.Length);
+            var moov = Box("moov", Box("udta", Box("\u00A9xyz", xyzPayload)));
+            var ftyp = Box("ftyp", "isom\0\0\u0002\0isommp41"u8.ToArray());
+            var mp4 = new byte[ftyp.Length + moov.Length];
+            Buffer.BlockCopy(ftyp, 0, mp4, 0, ftyp.Length);
+            Buffer.BlockCopy(moov, 0, mp4, ftyp.Length, moov.Length);
+
+            var mp4Path = Path.Combine(root, "phone.mp4");
+            File.WriteAllBytes(mp4Path, mp4);
+
+            var videoMeta = await new WindowsMetadataReader().ReadAsync(mp4Path, "video", CancellationToken.None);
+            Assert.NotNull(videoMeta.Latitude);
+            Assert.NotNull(videoMeta.Longitude);
+            Assert.InRange(videoMeta.Latitude!.Value, 37.77, 37.78);
+            Assert.InRange(videoMeta.Longitude!.Value, -122.42, -122.41);
+            Assert.Equal("video-iso6709", videoMeta.LocationOrigin);
+
+            // Photo with empty image body + sidecar .xmp
+            var dngPath = Path.Combine(root, "shot.dng");
+            File.WriteAllBytes(dngPath, [1, 2, 3, 4]);
+            File.WriteAllText(dngPath + ".xmp", """
+                <x:xmpmeta xmlns:x="adobe:ns:meta/">
+                  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                    <rdf:Description xmlns:exif="http://ns.adobe.com/exif/1.0/" xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
+                      exif:GPSLatitude="51.5074" exif:GPSLongitude="-0.1278"
+                      photoshop:City="London" photoshop:Country="UK" />
+                  </rdf:RDF>
+                </x:xmpmeta>
+                """);
+            var photoMeta = await new WindowsMetadataReader().ReadAsync(dngPath, "photo", CancellationToken.None);
+            Assert.InRange(photoMeta.Latitude!.Value, 51.50, 51.51);
+            Assert.InRange(photoMeta.Longitude!.Value, -0.13, -0.12);
+            Assert.Equal("London, UK", photoMeta.LocationName);
+        }
+        finally { Directory.Delete(root, true); }
+    }
 }

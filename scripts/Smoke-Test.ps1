@@ -549,6 +549,8 @@ try {
     # Verify new collapsible chrome and offline-by-default Map View.
     (Wait-Control 'Open map view').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Control 'Online Map Privacy Notice (One-Time Per Session)' | Out-Null
+    Wait-Control 'Scan GPS' | Out-Null
+    Wait-Control 'Trail' | Out-Null
     (Wait-Control '← Back to gallery').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Toggle sidebar').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     if (Find-Control 'Manage sources') { throw 'Sidebar did not collapse.' }

@@ -160,8 +160,10 @@ public sealed partial class MainWindow
         if (camParts.Count > 0)
             lines.Add("Camera: " + string.Join(" · ", camParts));
 
+        if (!string.IsNullOrWhiteSpace(meta?.LocationName))
+            lines.Add($"Place: {meta.LocationName}");
         if (meta?.Latitude is double lat && meta.Longitude is double lon)
-            lines.Add($"Coordinates: {lat:0.00000}, {lon:0.00000}");
+            lines.Add($"Coordinates: {lat:0.00000}, {lon:0.00000}" + (meta.LocationOrigin == "manual" ? " (Manual pin)" : ""));
 
         if (!string.IsNullOrWhiteSpace(card.Item.Tags))
             lines.Add($"Tags: {card.Item.Tags}");

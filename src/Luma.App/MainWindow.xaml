@@ -222,7 +222,7 @@
        <TextBlock Text="{Binding Caption}" Visibility="{Binding Details}" FontSize="10" Opacity="0.65"/>
       </StackPanel>
      </DataTemplate></GridView.ItemTemplate>
-     <GridView.ContextFlyout><MenuFlyout Closed="ExclusionMenuClosed" Opening="GalleryContextMenuOpening"><MenuFlyoutItem Text="Open" Click="OpenSelected" ToolTipService.ToolTip="Open this original in your default Windows application. Requires the source to be connected." AutomationProperties.HelpText="Open this original in your default Windows application. Requires the source to be connected."/><MenuFlyoutItem x:Name="ContextStackToggle" Text="Expand / collapse stack" Click="ToggleSelectedStack" Visibility="Collapsed"/><MenuFlyoutItem x:Name="ContextShowOnMap" Text="Show on map" Click="ShowSelectedOnMap" Visibility="Collapsed"/><MenuFlyoutItem Text="Show in Explorer" Click="RevealSelected" ToolTipService.ToolTip="Reveal this original in Windows Explorer." AutomationProperties.HelpText="Reveal this original in Windows Explorer."/><MenuFlyoutItem Text="Copy path" Click="CopyPath" ToolTipService.ToolTip="Copy full paths of selected originals as text." AutomationProperties.HelpText="Copy full paths of selected originals as text."/><MenuFlyoutSeparator/><MenuFlyoutItem Text="Exclude this folder…" Click="ExcludeFolder" ToolTipService.ToolTip="Hide this folder and its subfolders from this source and future scans. Originals are retained." AutomationProperties.HelpText="Hide this folder and its subfolders from this source and future scans. Originals are retained."/><MenuFlyoutItem Text="Exclude this source…" Click="ExcludeSource" ToolTipService.ToolTip="Hide this whole registered source and skip future scans until restored." AutomationProperties.HelpText="Hide this whole registered source and skip future scans until restored."/><MenuFlyoutItem Text="Exclude this file type…" Click="ExcludeType" ToolTipService.ToolTip="Hide this extension across all sources and skip it during scanning." AutomationProperties.HelpText="Hide this extension across all sources and skip it during scanning."/><MenuFlyoutItem Text="Manage exclusions…" Click="ManageExclusions" ToolTipService.ToolTip="Review folder, source and extension rules; restore hidden media here." AutomationProperties.HelpText="Review folder, source and extension rules; restore hidden media here."/><MenuFlyoutSeparator/><MenuFlyoutItem Text="Copy" Click="CopySelected" ToolTipService.ToolTip="Copy selected original files to the Windows clipboard (Ctrl+C). Reconnect offline sources first." AutomationProperties.HelpText="Copy selected original files to the Windows clipboard (Ctrl+C). Reconnect offline sources first."/><MenuFlyoutItem Text="Cut" Click="CutSelected" ToolTipService.ToolTip="Prepare selected originals for moving (Ctrl+X). Files move only when pasted." AutomationProperties.HelpText="Prepare selected originals for moving (Ctrl+X). Files move only when pasted."/><MenuFlyoutItem Text="Paste into folder…" Click="PasteSelected" ToolTipService.ToolTip="Choose a destination and paste copied or cut originals (Ctrl+V). Existing filenames are skipped." AutomationProperties.HelpText="Choose a destination and paste copied or cut originals (Ctrl+V). Existing filenames are skipped."/><MenuFlyoutItem Text="Copy to folder…" Click="CopyToFolder" ToolTipService.ToolTip="Copy selected originals into another folder; leave originals in place." AutomationProperties.HelpText="Copy selected originals into another folder; leave originals in place."/><MenuFlyoutItem Text="Move to folder…" Click="MoveToFolder" ToolTipService.ToolTip="Move selected originals into another folder. Review the operation result for skipped files." AutomationProperties.HelpText="Move selected originals into another folder. Review the operation result for skipped files."/><MenuFlyoutSeparator/><MenuFlyoutItem Text="Add to album…" Click="AddToAlbum" ToolTipService.ToolTip="Add selected media to a virtual album without moving originals." AutomationProperties.HelpText="Add selected media to a virtual album without moving originals."/><MenuFlyoutItem Text="Remove from this album" Click="RemoveFromAlbum" ToolTipService.ToolTip="Remove membership from this album; keep originals, tags and favorites." AutomationProperties.HelpText="Remove membership from this album; keep originals, tags and favorites."/><MenuFlyoutItem Text="Select all matching results" Click="SelectAllMatching" ToolTipService.ToolTip="Select every result in this filtered view, including unloaded items. Large selections use more memory." AutomationProperties.HelpText="Select every result in this filtered view, including unloaded items. Large selections use more memory."/><MenuFlyoutItem Text="Rename…" Click="RenameSelected" ToolTipService.ToolTip="Rename the selected original file (F2), or batch rename multiple files." AutomationProperties.HelpText="Rename the selected original file (F2). Its extension must be retained."/><MenuFlyoutItem Text="Delete to Recycle Bin…" Click="DeleteSelected" ToolTipService.ToolTip="Ask Windows to delete selected originals. Review the Recycle Bin confirmation carefully." AutomationProperties.HelpText="Ask Windows to delete selected originals. Review the Recycle Bin confirmation carefully."/></MenuFlyout></GridView.ContextFlyout>
+     <GridView.ContextFlyout><MenuFlyout Closed="ExclusionMenuClosed" Opening="GalleryContextMenuOpening"><MenuFlyoutItem Text="Open" Click="OpenSelected" ToolTipService.ToolTip="Open this original in your default Windows application. Requires the source to be connected." AutomationProperties.HelpText="Open this original in your default Windows application. Requires the source to be connected."/><MenuFlyoutItem x:Name="ContextStackToggle" Text="Expand / collapse stack" Click="ToggleSelectedStack" Visibility="Collapsed"/><MenuFlyoutItem x:Name="ContextShowOnMap" Text="Show on map" Click="ShowSelectedOnMap" Visibility="Collapsed"/><MenuFlyoutItem Text="Pin location on map…" Click="PinSelectedOnMap"/><MenuFlyoutItem Text="Show in Explorer" Click="RevealSelected" ToolTipService.ToolTip="Reveal this original in Windows Explorer." AutomationProperties.HelpText="Reveal this original in Windows Explorer."/><MenuFlyoutItem Text="Copy path" Click="CopyPath" ToolTipService.ToolTip="Copy full paths of selected originals as text." AutomationProperties.HelpText="Copy full paths of selected originals as text."/><MenuFlyoutSeparator/><MenuFlyoutItem Text="Exclude this folder…" Click="ExcludeFolder" ToolTipService.ToolTip="Hide this folder and its subfolders from this source and future scans. Originals are retained." AutomationProperties.HelpText="Hide this folder and its subfolders from this source and future scans. Originals are retained."/><MenuFlyoutItem Text="Exclude this source…" Click="ExcludeSource" ToolTipService.ToolTip="Hide this whole registered source and skip future scans until restored." AutomationProperties.HelpText="Hide this whole registered source and skip future scans until restored."/><MenuFlyoutItem Text="Exclude this file type…" Click="ExcludeType" ToolTipService.ToolTip="Hide this extension across all sources and skip it during scanning." AutomationProperties.HelpText="Hide this extension across all sources and skip it during scanning."/><MenuFlyoutItem Text="Manage exclusions…" Click="ManageExclusions" ToolTipService.ToolTip="Review folder, source and extension rules; restore hidden media here." AutomationProperties.HelpText="Review folder, source and extension rules; restore hidden media here."/><MenuFlyoutSeparator/><MenuFlyoutItem Text="Copy" Click="CopySelected" ToolTipService.ToolTip="Copy selected original files to the Windows clipboard (Ctrl+C). Reconnect offline sources first." AutomationProperties.HelpText="Copy selected original files to the Windows clipboard (Ctrl+C). Reconnect offline sources first."/><MenuFlyoutItem Text="Cut" Click="CutSelected" ToolTipService.ToolTip="Prepare selected originals for moving (Ctrl+X). Files move only when pasted." AutomationProperties.HelpText="Prepare selected originals for moving (Ctrl+X). Files move only when pasted."/><MenuFlyoutItem Text="Paste into folder…" Click="PasteSelected" ToolTipService.ToolTip="Choose a destination and paste copied or cut originals (Ctrl+V). Existing filenames are skipped." AutomationProperties.HelpText="Choose a destination and paste copied or cut originals (Ctrl+V). Existing filenames are skipped."/><MenuFlyoutItem Text="Copy to folder…" Click="CopyToFolder" ToolTipService.ToolTip="Copy selected originals into another folder; leave originals in place." AutomationProperties.HelpText="Copy selected originals into another folder; leave originals in place."/><MenuFlyoutItem Text="Move to folder…" Click="MoveToFolder" ToolTipService.ToolTip="Move selected originals into another folder. Review the operation result for skipped files." AutomationProperties.HelpText="Move selected originals into another folder. Review the operation result for skipped files."/><MenuFlyoutSeparator/><MenuFlyoutItem Text="Add to album…" Click="AddToAlbum" ToolTipService.ToolTip="Add selected media to a virtual album without moving originals." AutomationProperties.HelpText="Add selected media to a virtual album without moving originals."/><MenuFlyoutItem Text="Remove from this album" Click="RemoveFromAlbum" ToolTipService.ToolTip="Remove membership from this album; keep originals, tags and favorites." AutomationProperties.HelpText="Remove membership from this album; keep originals, tags and favorites."/><MenuFlyoutItem Text="Select all matching results" Click="SelectAllMatching" ToolTipService.ToolTip="Select every result in this filtered view, including unloaded items. Large selections use more memory." AutomationProperties.HelpText="Select every result in this filtered view, including unloaded items. Large selections use more memory."/><MenuFlyoutItem Text="Rename…" Click="RenameSelected" ToolTipService.ToolTip="Rename the selected original file (F2), or batch rename multiple files." AutomationProperties.HelpText="Rename the selected original file (F2). Its extension must be retained."/><MenuFlyoutItem Text="Delete to Recycle Bin…" Click="DeleteSelected" ToolTipService.ToolTip="Ask Windows to delete selected originals. Review the Recycle Bin confirmation carefully." AutomationProperties.HelpText="Ask Windows to delete selected originals. Review the Recycle Bin confirmation carefully."/></MenuFlyout></GridView.ContextFlyout>
     </GridView>
 
     <!-- Adaptive Proportions / Moments Justified Row View -->
@@ -278,6 +278,7 @@
      <TextBlock Text="File details" FontSize="17" FontWeight="SemiBold"/>
      <TextBlock x:Name="SelectionText" Text="Select media to inspect" TextWrapping="Wrap" FontSize="12" IsTextSelectionEnabled="True"/>
      <Button x:Name="InspectorMapButton" Content="Show on map" Click="ShowSelectedOnMap" Visibility="Collapsed" HorizontalAlignment="Stretch"/>
+     <Button x:Name="InspectorPinLocationButton" Content="Pin location…" Click="PinSelectedOnMap" Visibility="Collapsed" HorizontalAlignment="Stretch" ToolTipService.ToolTip="Assign catalog-only map coordinates without modifying original files."/>
      <TextBox x:Name="TagsBox" Header="Tags for selected files" PlaceholderText="Comma-separated tags" MaxLength="1000" ToolTipService.ToolTip="Enter comma-separated tags. Saving replaces tags for the selected files." AutomationProperties.HelpText="Enter comma-separated tags. Saving replaces tags for the selected files."/>
      <Button Content="Save tags" Click="SaveTags" ToolTipService.ToolTip="Save these tags for selected files. Multiple selections replace their existing tags after confirmation." AutomationProperties.HelpText="Save these tags for selected files. Multiple selections replace their existing tags after confirmation."/>
      <Button Content="Add to album…" Click="AddToAlbum" ToolTipService.ToolTip="Add selected media to a virtual album without moving originals." AutomationProperties.HelpText="Add selected media to a virtual album without moving originals."/>
@@ -358,56 +359,199 @@
    </Grid>
   </Grid>
 
-  <!-- Dedicated Free Online One-Time Map Overlay -->
+  <!-- Dedicated Minimal Map Workspace -->
   <Grid x:Name="MapOverlay" Grid.ColumnSpan="2" Background="{ThemeResource LumaCanvas}" Visibility="Collapsed">
-   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-   <Grid Padding="20,12" Background="{ThemeResource LumaSidebar}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="0,0,0,1">
-    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+
+   <!-- Header Bar -->
+   <Grid Padding="18,10" Background="{ThemeResource LumaSidebar}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="0,0,0,1" ColumnSpacing="10">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
      <Button Content="← Back to gallery" Click="CloseMapView" Background="{ThemeResource LumaControl}"/>
-     <TextBlock Text="Photo Map" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center"/>
-     <TextBlock x:Name="MapSummaryText" Text="0 geotagged items" FontSize="12" Opacity="0.7" VerticalAlignment="Center"/>
+     <TextBlock Text="Photo Map" FontSize="19" FontWeight="SemiBold" VerticalAlignment="Center"/>
+     <Border Background="{ThemeResource LumaControl}" CornerRadius="999" Padding="10,4" VerticalAlignment="Center">
+      <TextBlock x:Name="MapSummaryText" Text="0 mapped" FontSize="12" Opacity="0.85"/>
+     </Border>
+     <Border x:Name="MapBackfillPill" Background="{ThemeResource LumaControl}" CornerRadius="999" Padding="10,3" Visibility="Collapsed" VerticalAlignment="Center">
+      <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+       <ProgressRing x:Name="MapBackfillRing" Width="14" Height="14" IsActive="False"/>
+       <TextBlock x:Name="MapBackfillText" Text="Scanning files for GPS..." FontSize="11" VerticalAlignment="Center"/>
+       <Button Content="Pause" Click="PauseMapBackfill" Padding="6,2" FontSize="11"/>
+      </StackPanel>
+     </Border>
     </StackPanel>
-    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-     <Button x:Name="MapToggleModeButton" Content="Load online map (this session)" Click="GrantMapOnlineConsent"/>
+    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+     <Button x:Name="MapScanGpsButton" Content="Scan GPS" Click="TriggerMapBackfill" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Scan connected sources for missing GPS, video ISO-6709, or XMP location tags."/>
+     <ToggleButton x:Name="MapPinModeToggle" Content="Pin mode" Checked="MapPinModeToggled" Unchecked="MapPinModeToggled" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Click the map to assign catalog-only coordinates to selected or chosen items."/>
+     <ToggleButton x:Name="MapStripToggle" Content="Filmstrip" IsChecked="True" Checked="MapChromeToggled" Unchecked="MapChromeToggled" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Show or hide the photo strip for markers in view."/>
+     <ToggleButton x:Name="MapDrawerToggle" Content="Locations" IsChecked="True" Checked="MapChromeToggled" Unchecked="MapChromeToggled" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Show or hide coordinate clusters, place tags, and unlocated media."/>
+     <Button x:Name="MapToggleModeButton" Content="Load online map (this session)" Click="GrantMapOnlineConsent" Background="{ThemeResource LumaControl}" FontWeight="SemiBold"/>
     </StackPanel>
    </Grid>
 
-   <Grid Grid.Row="1">
-    <!-- Offline Coordinate Clusters & One-Time Privacy Consent View -->
-    <Grid x:Name="MapOfflinePanel" Padding="24">
-     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-     <Border x:Name="MapConsentCard" Background="{ThemeResource LumaSidebar}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="12" Padding="18" Margin="0,0,0,16">
-      <StackPanel Spacing="10">
-       <TextBlock Text="Online Map Privacy Notice (One-Time Per Session)" FontSize="15" FontWeight="SemiBold"/>
-       <TextBlock Text="Luma keeps zero telemetry and makes zero background network calls. Choosing 'Load online map (this session)' fetches free public OpenStreetMap tiles inside this view. Your photo files, filenames, and exact coordinates remain strictly on your PC and are never uploaded." TextWrapping="Wrap" Opacity="0.8"/>
-       <StackPanel Orientation="Horizontal" Spacing="10">
-        <Button Content="Load online map (this session)" Click="GrantMapOnlineConsent" Background="{ThemeResource LumaControl}" FontWeight="SemiBold"/>
-        <TextBlock Text="Or browse your saved offline coordinate clusters below without internet access." VerticalAlignment="Center" FontSize="12" Opacity="0.65"/>
-       </StackPanel>
+   <!-- Minimal Filter & View Mode Strip -->
+   <Border Grid.Row="1" Background="{ThemeResource LumaCanvas}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="0,0,0,1" Padding="16,7">
+    <Grid ColumnSpacing="10">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+       <Border Background="{ThemeResource LumaControl}" CornerRadius="9" Padding="3">
+        <StackPanel Orientation="Horizontal" Spacing="2">
+         <ToggleButton x:Name="MapKindAll" Content="All" IsChecked="True" Click="MapKindFilterClicked" Padding="9,4" FontSize="12"/>
+         <ToggleButton x:Name="MapKindPhotos" Content="Photos" Click="MapKindFilterClicked" Padding="9,4" FontSize="12"/>
+         <ToggleButton x:Name="MapKindVideos" Content="Videos" Click="MapKindFilterClicked" Padding="9,4" FontSize="12"/>
+        </StackPanel>
+       </Border>
+       <ToggleButton x:Name="MapFavFilter" Content="★ Favorites" Checked="MapFilterChanged" Unchecked="MapFilterChanged" Background="{ThemeResource LumaControl}" Padding="10,5" FontSize="12"/>
+       <ComboBox x:Name="MapYearFilter" PlaceholderText="All years" MinWidth="104" SelectionChanged="MapComboFilterChanged" FontSize="12"/>
+       <ComboBox x:Name="MapSourceFilter" PlaceholderText="All sources" MinWidth="136" SelectionChanged="MapComboFilterChanged" FontSize="12"/>
+       <ComboBox x:Name="MapOriginFilter" SelectedIndex="0" MinWidth="126" SelectionChanged="MapComboFilterChanged" FontSize="12">
+        <x:String>All pins</x:String><x:String>EXIF &amp; Video</x:String><x:String>Manual pins</x:String>
+       </ComboBox>
+       <TextBox x:Name="MapSearchBox" Width="185" PlaceholderText="Place, camera, file..." TextChanged="MapSearchTextChanged" FontSize="12"/>
+       <Button x:Name="MapResetFiltersBtn" Content="Clear" Click="MapResetFiltersClicked" Padding="8,5" FontSize="12"/>
+      </StackPanel>
+     </ScrollViewer>
+     <Border Grid.Column="1" Background="{ThemeResource LumaControl}" CornerRadius="9" Padding="3" VerticalAlignment="Center">
+      <StackPanel Orientation="Horizontal" Spacing="2">
+       <ToggleButton x:Name="MapViewClustersBtn" Content="Clusters" IsChecked="True" Click="MapViewModeClicked" Padding="9,4" FontSize="12"/>
+       <ToggleButton x:Name="MapViewPinsBtn" Content="Pins" Click="MapViewModeClicked" Padding="9,4" FontSize="12"/>
+       <ToggleButton x:Name="MapViewTrailBtn" Content="Trail" Click="MapViewModeClicked" Padding="9,4" FontSize="12"/>
       </StackPanel>
      </Border>
-     <ListView x:Name="MapOfflineGroupsList" Grid.Row="1" SelectionMode="None">
+    </Grid>
+   </Border>
+
+   <!-- Main Split: Interactive Map Canvas (Offline / Online) + Collapsible Locations Drawer -->
+   <Grid Grid.Row="2">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+
+    <!-- Offline Interactive Map & Compact One-Time Consent Banner -->
+    <Grid x:Name="MapOfflinePanel">
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+     <Border x:Name="MapConsentCard" Background="{ThemeResource LumaSidebar}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="10" Padding="14,9" Margin="14,10,14,0">
+      <Grid ColumnSpacing="12">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <StackPanel Spacing="2" VerticalAlignment="Center">
+        <TextBlock Text="Online Map Privacy Notice (One-Time Per Session)" FontSize="13" FontWeight="SemiBold"/>
+        <TextBlock Text="Zero telemetry or background calls. Loading the online map fetches public OpenStreetMap tiles inside this window only; your files and exact coordinates stay strictly on your PC." TextWrapping="Wrap" FontSize="11" Opacity="0.72"/>
+       </StackPanel>
+       <Button Grid.Column="1" Content="Load online map (this session)" Click="GrantMapOnlineConsent" Background="{ThemeResource LumaControl}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+       <Button Grid.Column="2" Content="✕" Click="DismissMapConsentBanner" ToolTipService.ToolTip="Hide notice" VerticalAlignment="Center" Padding="7,4"/>
+      </Grid>
+     </Border>
+
+     <!-- Interactive Minimal Offline World Coordinate Canvas -->
+     <Border Grid.Row="1" Background="{ThemeResource LumaSidebar}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="14" Margin="14,10,14,10">
+      <Grid CornerRadius="14">
+       <Canvas x:Name="OfflineMapCanvas" Background="Transparent" SizeChanged="OfflineCanvas_SizeChanged" PointerPressed="OfflineCanvas_PointerPressed" PointerMoved="OfflineCanvas_PointerMoved" PointerReleased="OfflineCanvas_PointerReleased" PointerWheelChanged="OfflineCanvas_PointerWheelChanged"/>
+       <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10" Padding="4" Background="{ThemeResource LumaCanvas}" CornerRadius="9">
+        <Button Content="+" Click="OfflineZoomInClicked" Padding="8,4" ToolTipService.ToolTip="Zoom in"/>
+        <Button Content="-" Click="OfflineZoomOutClicked" Padding="8,4" ToolTipService.ToolTip="Zoom out"/>
+        <Button Content="Fit all" Click="OfflineFitClicked" Padding="8,4" FontSize="12"/>
+        <Button Content="Filter gallery to view" Click="OfflineFilterBoundsClicked" Padding="8,4" FontSize="12" Background="{ThemeResource LumaControl}"/>
+       </StackPanel>
+       <Border x:Name="OfflinePinHint" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,12,0,0" Padding="12,6" CornerRadius="999" Background="{ThemeResource SystemControlHighlightAccentBrush}" Visibility="Collapsed">
+        <TextBlock x:Name="OfflinePinHintText" Text="Click anywhere on the map to assign catalog coordinates" Foreground="White" FontSize="12" FontWeight="SemiBold"/>
+       </Border>
+       <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="10" Padding="8,4" CornerRadius="6" Background="{ThemeResource LumaCanvas}" Opacity="0.82">
+        <TextBlock x:Name="OfflineMapModeBadge" Text="Offline coordinate canvas" FontSize="10"/>
+       </Border>
+      </Grid>
+     </Border>
+    </Grid>
+
+    <!-- Lazy WebView2 Host (only populated on explicit consent) -->
+    <Grid x:Name="MapWebHost" Visibility="Collapsed" Margin="14,10,14,10" CornerRadius="14"/>
+
+    <!-- Right Collapsible Drawer: Clusters | Place Tags | Unlocated -->
+    <Border x:Name="MapDrawerPanel" Grid.Column="1" Width="324" Background="{ThemeResource LumaSidebar}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1,0,0,0" Padding="12">
+     <Grid RowSpacing="8">
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <Border Background="{ThemeResource LumaControl}" CornerRadius="9" Padding="3">
+       <Grid ColumnSpacing="2">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <ToggleButton x:Name="MapTabClusters" Content="Clusters" IsChecked="True" Click="MapDrawerTabClicked" HorizontalAlignment="Stretch" Padding="6,4" FontSize="11"/>
+        <ToggleButton x:Name="MapTabPlaceTags" Grid.Column="1" Content="Place tags" Click="MapDrawerTabClicked" HorizontalAlignment="Stretch" Padding="6,4" FontSize="11"/>
+        <ToggleButton x:Name="MapTabUnlocated" Grid.Column="2" Content="Unlocated" Click="MapDrawerTabClicked" HorizontalAlignment="Stretch" Padding="6,4" FontSize="11"/>
+       </Grid>
+      </Border>
+
+      <Grid Grid.Row="1">
+       <TextBlock x:Name="MapDrawerEmpty" Text="No location items in this view." TextWrapping="Wrap" Opacity="0.65" FontSize="12" Margin="6,12" Visibility="Collapsed"/>
+
+       <ListView x:Name="MapOfflineGroupsList" SelectionMode="None">
+        <ListView.ItemTemplate><DataTemplate>
+         <Border Background="{ThemeResource LumaCardSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,3">
+          <StackPanel Spacing="6">
+           <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
+           <TextBlock Text="{Binding Subtitle}" FontSize="11" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
+           <StackPanel Orientation="Horizontal" Spacing="4">
+            <Button Content="Zoom" Tag="{Binding}" Click="MapOfflineGroupZoomClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
+            <Button Content="Filter gallery" Tag="{Binding}" Click="MapOfflineGroupFilterClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
+            <Button Content="OSM" Tag="{Binding}" Click="MapOfflineGroupBrowserClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
+           </StackPanel>
+          </StackPanel>
+         </Border>
+        </DataTemplate></ListView.ItemTemplate>
+       </ListView>
+
+       <ListView x:Name="MapPlaceTagsList" SelectionMode="None" Visibility="Collapsed">
+        <ListView.ItemTemplate><DataTemplate>
+         <Border Background="{ThemeResource LumaCardSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,3">
+          <StackPanel Spacing="5">
+           <TextBlock Text="{Binding LocationName}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
+           <TextBlock Text="{Binding Title}" FontSize="11" Opacity="0.75" TextTrimming="CharacterEllipsis"/>
+           <StackPanel Orientation="Horizontal" Spacing="4">
+            <Button Content="Preview" Tag="{Binding}" Click="MapDrawerItemPreviewClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
+            <Button Content="Pin coords…" Tag="{Binding}" Click="MapDrawerItemPinClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
+           </StackPanel>
+          </StackPanel>
+         </Border>
+        </DataTemplate></ListView.ItemTemplate>
+       </ListView>
+
+       <ListView x:Name="MapUnlocatedList" SelectionMode="None" Visibility="Collapsed">
+        <ListView.ItemTemplate><DataTemplate>
+         <Border Background="{ThemeResource LumaCardSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,3">
+          <StackPanel Spacing="5">
+           <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
+           <TextBlock Text="{Binding Subtitle}" FontSize="11" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
+           <StackPanel Orientation="Horizontal" Spacing="4">
+            <Button Content="Preview" Tag="{Binding}" Click="MapDrawerItemPreviewClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
+            <Button Content="Pin on map…" Tag="{Binding}" Click="MapDrawerItemPinClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
+           </StackPanel>
+          </StackPanel>
+         </Border>
+        </DataTemplate></ListView.ItemTemplate>
+       </ListView>
+      </Grid>
+     </Grid>
+    </Border>
+   </Grid>
+
+   <!-- Collapsible Viewport Filmstrip Bar -->
+   <Border x:Name="MapFilmstripBar" Grid.Row="3" Height="116" Background="{ThemeResource LumaSidebar}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="0,1,0,0" Padding="12,6">
+    <Grid RowSpacing="4">
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+     <TextBlock x:Name="MapFilmstripHeader" Text="Visible in map area" FontSize="11" Opacity="0.65"/>
+     <ListView x:Name="MapFilmstripList" Grid.Row="1" IsItemClickEnabled="True" SelectionMode="None" ItemClick="MapFilmstripItemClicked" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+      <ListView.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="6"/></ItemsPanelTemplate></ListView.ItemsPanel>
+      <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/><Setter Property="MinWidth" Value="0"/></Style></ListView.ItemContainerStyle>
       <ListView.ItemTemplate><DataTemplate>
-       <Border Background="{ThemeResource LumaCardSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,4">
-        <Grid ColumnSpacing="12">
-         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-         <StackPanel Spacing="2">
-          <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14"/>
-          <TextBlock Text="{Binding Subtitle}" FontSize="12" Opacity="0.7"/>
-         </StackPanel>
-         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-          <Button Content="Filter gallery here" Tag="{Binding}" Click="MapOfflineGroupFilterClicked" Background="{ThemeResource LumaControl}"/>
-          <Button Content="Open in browser (OSM)" Tag="{Binding}" Click="MapOfflineGroupBrowserClicked" Background="{ThemeResource LumaControl}"/>
-         </StackPanel>
+       <Border Width="108" Height="74" CornerRadius="8" Background="{ThemeResource LumaCardSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" ToolTipService.ToolTip="{Binding Tooltip}">
+        <Grid CornerRadius="8">
+         <FontIcon Glyph="&#xEB9F;" Opacity="0.22" FontSize="20"/>
+         <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"/>
+         <Border VerticalAlignment="Bottom" Background="#A6000000" Padding="5,2">
+          <TextBlock Text="{Binding Label}" Foreground="White" FontSize="10" TextTrimming="CharacterEllipsis"/>
+         </Border>
         </Grid>
        </Border>
       </DataTemplate></ListView.ItemTemplate>
      </ListView>
     </Grid>
-
-    <!-- Lazy WebView2 Host (only populated on explicit consent) -->
-    <Grid x:Name="MapWebHost" Visibility="Collapsed"/>
-   </Grid>
+   </Border>
   </Grid>
  </Grid>
  </ContentControl>
