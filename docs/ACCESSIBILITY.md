@@ -64,3 +64,4 @@ All interactive buttons, toggles, text boxes, and sliders specify:
 ### 4.2. High DPI and Text Scaling
 - Layouts employ flexible grids and stack panels that adjust dynamically when Windows Text Size is scaled up to 200%.
 - Thumbnail tiles preserve aspect ratio and maintain clear spacing regardless of display scale factor (100%, 125%, 150%, 200%).
+

@@ -25,3 +25,4 @@ Audience: All agents and Project Owner
 - **AD-1: Re-entrancy Synchronization (`galleryGate`):** Applied `SemaphoreSlim(1, 1)` to `RefreshGallery` to eliminate WinUI 3 `0xc000027b` XAML layout race conditions during rapid filtering and source changes.
 - **AD-2: Rolling Catalog Backups:** Implemented `catalog.CreateBackupAsync()` before schema migrations, source removals, and manual user requests to eliminate any data-loss risks.
 - **AD-3: Report-First External Move Reconciliation:** Detects externally moved media on connected sources using length and modification timestamps, preserving user tags, favorites, and album assignments without modifying disk files.
+

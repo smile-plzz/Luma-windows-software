@@ -82,3 +82,4 @@ WinUI 3 desktop user interface and window management:
 - SQLite database transactions run on background threads (`Task.Run`).
 - WinUI 3 collection modifications (`ObservableCollection<MediaCard>`) occur strictly on the UI thread (`DispatcherQueue`).
 - A `SemaphoreSlim(1, 1)` gate (`galleryGate`) synchronizes gallery refresh operations, preventing re-entrancy during fast filtering or rapid UI events.
+

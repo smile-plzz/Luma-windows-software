@@ -87,3 +87,4 @@ The fix is validated by `tests/Luma.Tests/StressTests.cs`, which exercises:
 - High-concurrency catalog queries during active background scanning.
 - Rapid thumbnail cache write/read cycles with simultaneous eviction.
 - Simulated corrupted settings and low-disk space boundaries.
+

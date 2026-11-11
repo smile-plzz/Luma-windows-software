@@ -54,3 +54,4 @@ In accordance with Section 5 (Agent 7):
 - Luma does not perform silent or forced automatic background updates in Phase 4.
 - An explicit, user-initiated "Check for updates" button is provided in Settings.
 - When clicked, Luma opens the official verified GitHub Releases page in the user's default browser.
+

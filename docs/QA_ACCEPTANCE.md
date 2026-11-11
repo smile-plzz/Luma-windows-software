@@ -36,3 +36,4 @@ The following tests require physical hardware (external USB drive, spinning HDD,
 | Date | Tester Name | Hardware Tested (Model, Connection) | Tests Passed | Tests Failed | Notes |
 |---|---|---|---|---|---|
 | 2026-11-11 | Automated Baseline | Synthetic 200k catalog on Windows 11 runner | Synthetic pass (103 unit/integration tests) | None | Physical hardware suite pending human owner verification |
+
