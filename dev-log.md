@@ -135,6 +135,6 @@ Luma: Agent Swarm Handoff (v0.6.0 to v1.0.0)
 ### Verification
 - `dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release`: 113 passed, 0 failed, 0 skipped.
 - `dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release`: 6 passed, 0 failed, 0 skipped.
-- Clean Release publish: `dotnet publish src/Luma.App/Luma.App.csproj -c Release -r win-x64 -p:Platform=x64 -o artifacts/Luma-v0.7.0-win-x64` (`FileVersion=0.7.0.0`, `MainWindowXbf=True`, `MapHtml=True`, SHA-256 `8A806E3A742AC2DCFD72D883D1214BF3BD54488B2B67C9ED5DBBB3AC4D8B9127`).
-- Portable ZIP package: `artifacts/Luma-v0.7.0-win-x64.zip` (`82.66 MB`, SHA-256 `BB9E823564883635069CA9F5C308338B0F63D8DE68DF690E78149257C8FE8D17`).
-- `scripts/Smoke-Test.ps1`: Added UIA checks for `Scan GPS` and `Trail` inside the Map overlay; full end-to-end UIA smoke awaits standalone/CI execution while `artifacts/Luma-win-x64/Luma.App.exe` (PID 3868) remains open on desktop.
+- Clean Release publish: `dotnet publish src/Luma.App/Luma.App.csproj -c Release -r win-x64 -p:Platform=x64 -o artifacts/Luma-v0.7.0-win-x64` (`FileVersion=0.7.0.0`, `MainWindowXbf=True`, `MapHtml=True`, SHA-256 `7B1DD9018D9AD75F46F992B8F810B61D52C98E2CBD32727CA659932CC34234AB`).
+- Portable ZIP package: `artifacts/Luma-v0.7.0-win-x64.zip` (`82.72 MB`, SHA-256 `634C92DDA769CD8AEE324FBB20EF64758A470BA133F61346B431A11FC31F0E0D`).
+- `scripts/Smoke-Test.ps1`: Added UIA checks for `Scan GPS` and `Trail` inside the Map overlay; full end-to-end UIA smoke was not executed in this turn while `artifacts/Luma-win-x64/Luma.App.exe` (PID 3868) remained open.
