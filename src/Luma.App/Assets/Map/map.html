@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Luma Photo Map</title>
+<style>
+  * { box-sizing: border-box; user-select: none; }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: "Segoe UI", system-ui, sans-serif; background: #1c1d21; color: #f4f4f5; }
+  #map { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: grab; background: #23252a; }
+  #map.dragging { cursor: grabbing; }
+  #tiles, #markers { position: absolute; inset: 0; pointer-events: none; }
+  #markers { pointer-events: auto; }
+  .tile { position: absolute; width: 256px; height: 256px; image-rendering: auto; pointer-events: none; }
+  .cluster {
+    position: absolute; transform: translate(-50%, -50%);
+    min-width: 34px; height: 34px; padding: 0 9px;
+    border-radius: 17px; background: rgba(34, 118, 224, 0.92); color: #fff;
+    border: 2px solid rgba(255,255,255,0.92); box-shadow: 0 3px 10px rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; cursor: pointer; transition: transform 0.12s ease;
+  }
+  .cluster.fav { background: rgba(218, 132, 24, 0.94); }
+  .cluster:hover { transform: translate(-50%, -50%) scale(1.1); z-index: 20; }
+  .pin {
+    position: absolute; transform: translate(-50%, -100%);
+    width: 24px; height: 24px; border-radius: 12px 12px 12px 2px;
+    transform-origin: center bottom;
+    background: #2276e0; border: 2px solid #fff; box-shadow: 0 3px 8px rgba(0,0,0,0.45);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: #fff;
+  }
+  .pin.fav { background: #da8418; }
+  .pin:hover { z-index: 30; filter: brightness(1.15); }
+  .toolbar {
+    position: absolute; top: 14px; left: 14px; right: 14px;
+    display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; z-index: 50;
+  }
+  .pill-group { display: flex; gap: 6px; pointer-events: auto; background: rgba(24,24,28,0.86); backdrop-filter: blur(10px); padding: 6px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 4px 16px rgba(0,0,0,0.35); }
+  button.btn {
+    background: rgba(255,255,255,0.08); color: #f4f4f5; border: none; border-radius: 7px;
+    padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer;
+  }
+  button.btn:hover { background: rgba(255,255,255,0.18); }
+  button.btn.primary { background: #2563eb; color: #fff; }
+  button.btn.primary:hover { background: #1d4ed8; }
+  #popup {
+    position: absolute; display: none; width: 252px; z-index: 80;
+    background: rgba(28, 28, 32, 0.96); backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.16); border-radius: 12px; padding: 10px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.55); pointer-events: auto;
+  }
+  #popupThumb { width: 100%; height: 144px; object-fit: cover; border-radius: 8px; background: #111; display: block; margin-bottom: 8px; }
+  #popupName { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #popupMeta { font-size: 11px; color: #a1a1aa; margin: 4px 0 10px; line-height: 1.4; }
+  .popup-actions { display: flex; gap: 6px; }
+  .attribution {
+    position: absolute; bottom: 8px; right: 10px; z-index: 40;
+    background: rgba(20,20,24,0.75); color: #d4d4d8; font-size: 10px; padding: 3px 8px; border-radius: 6px;
+  }
+  .attribution a { color: #93c5fd; text-decoration: none; }
+</style>
+</head>
+<body>
+<div id="map">
+  <div id="tiles"></div>
+  <div id="markers"></div>
+  <div class="toolbar">
+    <div class="pill-group">
+      <button class="btn" id="zoomIn" title="Zoom in">+</button>
+      <button class="btn" id="zoomOut" title="Zoom out">-</button>
+      <button class="btn" id="fitAll">Fit all pins</button>
+      <span id="statusBadge" style="font-size:12px;padding:6px 8px;color:#d4d4d8;">0 geotagged items</span>
+    </div>
+    <div class="pill-group">
+      <button class="btn primary" id="filterBoundsBtn">Filter gallery to map area</button>
+    </div>
+  </div>
+  <div id="popup">
+    <img id="popupThumb" alt="Preview" />
+    <div id="popupName"></div>
+    <div id="popupMeta"></div>
+    <div class="popup-actions">
+      <button class="btn primary" id="popupOpenBtn" style="flex:1">Open preview</button>
+      <button class="btn" id="popupCloseBtn">Close</button>
+    </div>
+  </div>
+  <div class="attribution">&copy; OpenStreetMap contributors</div>
+</div>
+<script>
+(function () {
+  const TILE_SIZE = 256;
+  const MIN_ZOOM = 2;
+  const MAX_ZOOM = 18;
+  const mapEl = document.getElementById('map');
+  const tilesEl = document.getElementById('tiles');
+  const markersEl = document.getElementById('markers');
+  const statusEl = document.getElementById('statusBadge');
+  const popupEl = document.getElementById('popup');
+  const popupThumbEl = document.getElementById('popupThumb');
+  const popupNameEl = document.getElementById('popupName');
+  const popupMetaEl = document.getElementById('popupMeta');
+
+  let state = { centerLat: 20, centerLon: 0, zoom: 2, markers: [], activeItem: null };
+  const tileCache = new Map();
+
+  function lonToWorldX(lon, z) { return ((lon + 180) / 360) * TILE_SIZE * Math.pow(2, z); }
+  function latToWorldY(lat, z) {
+    const rad = Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 180;
+    return (0.5 - Math.log((1 + Math.sin(rad)) / (1 - Math.sin(rad))) / (4 * Math.PI)) * TILE_SIZE * Math.pow(2, z);
+  }
+  function worldXToLon(wx, z) { return (wx / (TILE_SIZE * Math.pow(2, z))) * 360 - 180; }
+  function worldYToLat(wy, z) {
+    const n = Math.PI - (2 * Math.PI * wy) / (TILE_SIZE * Math.pow(2, z));
+    return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+  }
+
+  function formatCoord(lat, lon) {
+    const ns = lat >= 0 ? 'N' : 'S';
+    const ew = lon >= 0 ? 'E' : 'W';
+    return `${Math.abs(lat).toFixed(4)} ${ns}, ${Math.abs(lon).toFixed(4)} ${ew}`;
+  }
+
+  function render() {
+    const w = mapEl.clientWidth || 800;
+    const h = mapEl.clientHeight || 600;
+    const z = state.zoom;
+    const scaleCount = Math.pow(2, z);
+    const cx = lonToWorldX(state.centerLon, z);
+    const cy = latToWorldY(state.centerLat, z);
+    const originX = cx - w / 2;
+    const originY = cy - h / 2;
+
+    // Render OSM tiles
+    const minTileX = Math.floor(originX / TILE_SIZE);
+    const maxTileX = Math.floor((originX + w) / TILE_SIZE);
+    const minTileY = Math.max(0, Math.floor(originY / TILE_SIZE));
+    const maxTileY = Math.min(scaleCount - 1, Math.floor((originY + h) / TILE_SIZE));
+
+    const needed = new Set();
+    for (let tx = minTileX; tx <= maxTileX; tx++) {
+      const wrappedX = ((tx % scaleCount) + scaleCount) % scaleCount;
+      for (let ty = minTileY; ty <= maxTileY; ty++) {
+        const id = `${z}/${tx}/${ty}`;
+        needed.add(id);
+        let img = tileCache.get(id);
+        if (!img) {
+          img = document.createElement('img');
+          img.className = 'tile';
+          img.draggable = false;
+          img.src = `https://tile.openstreetmap.org/${z}/${wrappedX}/${ty}.png`;
+          tileCache.set(id, img);
+          tilesEl.appendChild(img);
+        }
+        img.style.left = `${Math.round(tx * TILE_SIZE - originX)}px`;
+        img.style.top = `${Math.round(ty * TILE_SIZE - originY)}px`;
+      }
+    }
+    for (const [id, img] of tileCache.entries()) {
+      if (!needed.has(id)) {
+        img.remove();
+        tileCache.delete(id);
+      }
+    }
+
+    // Cluster markers in screen space
+    markersEl.innerHTML = '';
+    const cellSize = z >= 16 ? 26 : 48;
+    const cells = new Map();
+
+    for (const m of state.markers) {
+      const px = lonToWorldX(m.longitude, z) - originX;
+      const py = latToWorldY(m.latitude, z) - originY;
+      if (px < -60 || px > w + 60 || py < -60 || py > h + 60) continue;
+      const gx = Math.floor(px / cellSize);
+      const gy = Math.floor(py / cellSize);
+      const key = `${gx}_${gy}`;
+      let c = cells.get(key);
+      if (!c) {
+        c = { items: [], sumLat: 0, sumLon: 0, fav: false };
+        cells.set(key, c);
+      }
+      c.items.push(m);
+      c.sumLat += m.latitude;
+      c.sumLon += m.longitude;
+      if (m.favorite) c.fav = true;
+    }
+
+    for (const c of cells.values()) {
+      const avgLat = c.sumLat / c.items.length;
+      const avgLon = c.sumLon / c.items.length;
+      const px = lonToWorldX(avgLon, z) - originX;
+      const py = latToWorldY(avgLat, z) - originY;
+
+      if (c.items.length === 1) {
+        const m = c.items[0];
+        const pin = document.createElement('div');
+        pin.className = 'pin' + (m.favorite ? ' fav' : '');
+        pin.style.left = `${px}px`;
+        pin.style.top = `${py}px`;
+        pin.title = m.name;
+        pin.textContent = m.favorite ? '★' : '';
+        pin.addEventListener('click', (e) => { e.stopPropagation(); showPopup(m, px, py); });
+        markersEl.appendChild(pin);
+      } else {
+        const el = document.createElement('div');
+        el.className = 'cluster' + (c.fav ? ' fav' : '');
+        el.style.left = `${px}px`;
+        el.style.top = `${py}px`;
+        el.textContent = String(c.items.length);
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          hidePopup();
+          if (state.zoom < MAX_ZOOM) {
+            state.centerLat = avgLat;
+            state.centerLon = avgLon;
+            state.zoom = Math.min(MAX_ZOOM, state.zoom + 2);
+            render();
+          } else {
+            showPopup(c.items[0], px, py);
+          }
+        });
+        markersEl.appendChild(el);
+      }
+    }
+  }
+
+  function showPopup(m, px, py) {
+    state.activeItem = m;
+    popupNameEl.textContent = m.name;
+    popupMetaEl.textContent = `${m.dateText}\n${formatCoord(m.latitude, m.longitude)}`;
+    popupMetaEl.style.whiteSpace = 'pre-line';
+    popupThumbEl.src = '';
+    const w = mapEl.clientWidth || 800;
+    const h = mapEl.clientHeight || 600;
+    popupEl.style.left = `${Math.max(12, Math.min(w - 264, px - 126))}px`;
+    popupEl.style.top = `${Math.max(60, Math.min(h - 240, py - 245))}px`;
+    popupEl.style.display = 'block';
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage({ type: 'requestThumb', sourceId: m.sourceId, relativePath: m.relativePath });
+    }
+  }
+
+  function hidePopup() {
+    popupEl.style.display = 'none';
+    state.activeItem = null;
+  }
+
+  function fitAll() {
+    if (!state.markers.length) return;
+    let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+    for (const m of state.markers) {
+      if (m.latitude < minLat) minLat = m.latitude;
+      if (m.latitude > maxLat) maxLat = m.latitude;
+      if (m.longitude < minLon) minLon = m.longitude;
+      if (m.longitude > maxLon) maxLon = m.longitude;
+    }
+    state.centerLat = (minLat + maxLat) / 2;
+    state.centerLon = (minLon + maxLon) / 2;
+    const latSpan = Math.max(0.01, maxLat - minLat);
+    const lonSpan = Math.max(0.01, maxLon - minLon);
+    const maxSpan = Math.max(latSpan, lonSpan);
+    if (maxSpan > 120) state.zoom = 2;
+    else if (maxSpan > 40) state.zoom = 4;
+    else if (maxSpan > 10) state.zoom = 6;
+    else if (maxSpan > 2) state.zoom = 8;
+    else if (maxSpan > 0.3) state.zoom = 11;
+    else state.zoom = 13;
+    render();
+  }
+
+  // Pan & Zoom interactions
+  let dragging = false, lastX = 0, lastY = 0;
+  mapEl.addEventListener('mousedown', (e) => {
+    if (e.target !== mapEl && e.target !== markersEl) return;
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    mapEl.classList.add('dragging');
+    hidePopup();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    const cx = lonToWorldX(state.centerLon, state.zoom) - dx;
+    const cy = latToWorldY(state.centerLat, state.zoom) - dy;
+    state.centerLon = Math.max(-180, Math.min(180, worldXToLon(cx, state.zoom)));
+    state.centerLat = Math.max(-85, Math.min(85, worldYToLat(cy, state.zoom)));
+    render();
+  });
+  window.addEventListener('mouseup', () => { dragging = false; mapEl.classList.remove('dragging'); });
+  mapEl.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, state.zoom + (e.deltaY < 0 ? 1 : -1)));
+    if (nextZoom !== state.zoom) {
+      state.zoom = nextZoom;
+      render();
+    }
+  }, { passive: false });
+
+  document.getElementById('zoomIn').addEventListener('click', () => { state.zoom = Math.min(MAX_ZOOM, state.zoom + 1); render(); });
+  document.getElementById('zoomOut').addEventListener('click', () => { state.zoom = Math.max(MIN_ZOOM, state.zoom - 1); render(); });
+  document.getElementById('fitAll').addEventListener('click', fitAll);
+  document.getElementById('popupCloseBtn').addEventListener('click', hidePopup);
+  document.getElementById('popupOpenBtn').addEventListener('click', () => {
+    if (state.activeItem && window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage({ type: 'openPreview', sourceId: state.activeItem.sourceId, relativePath: state.activeItem.relativePath });
+    }
+  });
+  document.getElementById('filterBoundsBtn').addEventListener('click', () => {
+    const w = mapEl.clientWidth || 800;
+    const h = mapEl.clientHeight || 600;
+    const cx = lonToWorldX(state.centerLon, state.zoom);
+    const cy = latToWorldY(state.centerLat, state.zoom);
+    const minLon = Math.max(-180, worldXToLon(cx - w / 2, state.zoom));
+    const maxLon = Math.min(180, worldXToLon(cx + w / 2, state.zoom));
+    const maxLat = Math.min(90, worldYToLat(cy - h / 2, state.zoom));
+    const minLat = Math.max(-90, worldYToLat(cy + h / 2, state.zoom));
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage({ type: 'filterBounds', minLat, maxLat, minLon, maxLon });
+    }
+  });
+
+  if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (!msg) return;
+      if (msg.type === 'setMarkers') {
+        state.markers = msg.markers || [];
+        statusEl.textContent = `${state.markers.length.toLocaleString()} geotagged item(s)`;
+        fitAll();
+      } else if (msg.type === 'thumb' && state.activeItem && msg.sourceId === state.activeItem.sourceId && msg.relativePath === state.activeItem.relativePath) {
+        popupThumbEl.src = msg.dataUri || '';
+      } else if (msg.type === 'focusPin' && msg.lat != null && msg.lon != null) {
+        state.centerLat = msg.lat;
+        state.centerLon = msg.lon;
+        state.zoom = 14;
+        render();
+      }
+    });
+  }
+
+  window.addEventListener('resize', render);
+  render();
+})();
+</script>
+</body>
+</html>
+

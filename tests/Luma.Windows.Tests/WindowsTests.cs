@@ -96,4 +96,44 @@ public sealed class WindowsTests
         }
         finally { Directory.Delete(root, true); }
     }
+
+    [Fact]
+    public async Task WindowsMetadataReader_ExtractsGpsAndCameraModelSafely()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Luma-gps-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            var folder = await global::Windows.Storage.StorageFolder.GetFolderFromPathAsync(root);
+            var file = await folder.CreateFileAsync("geotagged.jpg");
+            using (var stream = await file.OpenAsync(global::Windows.Storage.FileAccessMode.ReadWrite))
+            {
+                var encoder = await global::Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(global::Windows.Graphics.Imaging.BitmapEncoder.JpegEncoderId, stream);
+                encoder.SetPixelData(global::Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+                    global::Windows.Graphics.Imaging.BitmapAlphaMode.Ignore, 64, 48, 96, 96,
+                    Enumerable.Repeat((byte)200, 64 * 48 * 4).ToArray());
+
+                static ulong Rational(uint num, uint den) => ((ulong)den << 32) | num;
+                var gpsLat = new[] { Rational(48, 1), Rational(51, 1), Rational(2376, 100) };
+                var gpsLon = new[] { Rational(2, 1), Rational(21, 1), Rational(792, 100) };
+                await encoder.BitmapProperties.SetPropertiesAsync(new Dictionary<string, global::Windows.Graphics.Imaging.BitmapTypedValue>
+                {
+                    ["/app1/ifd/{ushort=272}"] = new("Luma Test Cam", global::Windows.Foundation.PropertyType.String),
+                    ["/app1/ifd/gps/{ushort=1}"] = new("N", global::Windows.Foundation.PropertyType.String),
+                    ["/app1/ifd/gps/{ushort=2}"] = new(gpsLat, global::Windows.Foundation.PropertyType.UInt64Array),
+                    ["/app1/ifd/gps/{ushort=3}"] = new("E", global::Windows.Foundation.PropertyType.String),
+                    ["/app1/ifd/gps/{ushort=4}"] = new(gpsLon, global::Windows.Foundation.PropertyType.UInt64Array)
+                });
+                await encoder.FlushAsync();
+            }
+
+            var metadata = await new WindowsMetadataReader().ReadAsync(file.Path, "photo", CancellationToken.None);
+            Assert.Equal("Luma Test Cam", metadata.CameraModel);
+            Assert.NotNull(metadata.Latitude);
+            Assert.NotNull(metadata.Longitude);
+            Assert.InRange(metadata.Latitude!.Value, 48.85, 48.86);
+            Assert.InRange(metadata.Longitude!.Value, 2.35, 2.36);
+        }
+        finally { Directory.Delete(root, true); }
+    }
 }

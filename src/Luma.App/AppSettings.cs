@@ -12,6 +12,7 @@ public sealed class AppSettings
     public int ThumbnailSize { get; set; } = 190;
     public bool ShowNames { get; set; }
     public bool ShowDetails { get; set; }
+    public bool ShowExactTime { get; set; }
     public bool FitImages { get; set; }
     public bool Compact { get; set; }
     public bool CommonOnly { get; set; }
@@ -20,6 +21,19 @@ public sealed class AppSettings
     public int CacheGiB { get; set; } = 2;
     public string Theme { get; set; } = "Default";
     public bool RestoredFromCorruptedFile { get; set; }
+
+    public bool SidebarCollapsed { get; set; }
+    public bool HeaderCollapsed { get; set; }
+    public bool ViewsExpanded { get; set; } = true;
+    public bool AlbumsExpanded { get; set; } = true;
+    public bool SmartCollectionsExpanded { get; set; }
+    public bool SourcesExpanded { get; set; } = true;
+
+    public string LayoutMode { get; set; } = "Uniform";
+    public bool StackSimilar { get; set; }
+    public bool FavoritesFirst { get; set; }
+    public List<string> RecentDestinations { get; set; } = new();
+    public List<string> RecentSearches { get; set; } = new();
 
     public static bool IsSmokeTest => Environment.GetCommandLineArgs().Contains("--smoke-test");
 
@@ -74,6 +88,10 @@ public sealed class AppSettings
         if (document.RootElement.ValueKind == JsonValueKind.Object && !document.RootElement.TryGetProperty(nameof(FilterDefaultsVersion), out _))
             settings.CommonOnly = false;
         settings.FilterDefaultsVersion = 1;
+        settings.RecentDestinations ??= new();
+        settings.RecentSearches ??= new();
+        if (settings.LayoutMode is not ("Uniform" or "Adaptive" or "Moments"))
+            settings.LayoutMode = "Uniform";
         return settings;
     }
 

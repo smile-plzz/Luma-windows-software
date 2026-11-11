@@ -32,30 +32,35 @@ Luma/
 ### 2.1. Luma.Core (`net8.0`)
 Contains platform-agnostic business logic and data access:
 - `MediaCache.cs`: SQLite database manager with WAL journal mode, parameterized SQL, pre-migration backup, quick_check integrity validation, and WAL checkpointing.
-- `LibraryQueries.cs`: Query execution, sorting (capture date, modified date, name, size, random), pagination via seek cursors, and month grouping.
+- `LibraryQueries.cs`: Query execution, sorting (capture date, modified date, name, filename, size, type, resolution, duration, favorites-first), pagination via seek cursors, geotagged marker queries, rich search operator parsing, and month grouping.
+- `PhotoStacks.cs`: Non-destructive grouping of 30s bursts and RAW+JPEG pairs, plus batch rename pattern formatting.
+- `SmartCollections.cs`: Saved dynamic search criteria and presets in SQLite.
+- `TagManagement.cs` / `DuplicateDetection.cs` / `ExternalReconciliation.cs`: Tag counting/renaming/merging, size+hash duplicate grouping, and external move re-linking.
 - `ThumbnailCache.cs`: Thread-safe, bounded disk LRU cache storing decoded JPEG/WebP thumbnails keyed by source and relative path.
 - `ThumbnailService.cs`: Coordinates thumbnail generation, disk cache lookups, and concurrency limits.
 - `Exclusions.cs`: Library exclusions engine (sources, folders, file extensions) applied to both scanning and browsing.
-- `Organization.cs`: Virtual albums, favorites, and tag annotations.
-- `FileTransfer.cs`: Safe, atomic copy and move operations using temporary sibling files.
+- `Organization.cs`: Virtual albums, favorites, metadata schema extensions (EXIF & GPS), and tag annotations.
+- `FileTransfer.cs`: Safe, atomic copy and move operations using temporary sibling files with opt-in unique collision renaming.
 - `ResumableIndexing.cs`: Folder checkpointing during discovery and metadata enrichment.
 - `BrowsePosition.cs`: State persistence for restoring previous viewport position.
 
 ### 2.2. Luma.Windows (`net8.0-windows10.0.19041.0`)
 Encapsulates platform-specific Windows APIs:
 - `WindowsSourceResolver.cs`: Identifies physical and removable drives using volume GUIDs and volume serial numbers, resolving drive-letter shifts dynamically upon reconnection.
-- `WindowsMetadataReader.cs`: Extracts EXIF capture dates, image dimensions, and video duration via Windows Shell and WIC.
+- `WindowsMetadataReader.cs`: Extracts EXIF capture dates, GPS coordinates, camera settings, image dimensions, and video duration via Windows Shell and WIC.
 - `WindowsThumbnailGenerator.cs`: Generates high-quality thumbnails using Windows Imaging Component (WIC) and WinRT thumbnail APIs with format fallback.
 
 ### 2.3. Luma.App (`net8.0-windows10.0.19041.0`, self-contained win-x64)
 WinUI 3 desktop user interface and window management:
-- `MainWindow.xaml` / `MainWindow.xaml.cs`: Top-level window hosting navigation, toolbar, search, and status bar.
-- `MainWindow.Gallery.cs`: Virtualized media grid, thumbnail loading coordinator, scroll tracking, and filter bar.
-- `MainWindow.Preview.cs`: Full-screen/modal preview overlay (Spacebar), pan/zoom, and metadata inspector.
-- `MainWindow.Organization.cs`: Tag editing, album management, and native Windows clipboard/drag-and-drop file operations.
-- `MainWindow.Management.cs`: Source management dialog, storage & preview maintenance, and activity monitor.
+- `MainWindow.xaml` / `MainWindow.xaml.cs`: Top-level window with Windows 11 Mica backdrop, collapsible sidebar/header, toolbar, search, and status bar.
+- `MainWindow.Gallery.cs`: Dual virtualized media gallery (`MediaGrid` Uniform + `JustifiedRowsList` Adaptive/Moments), stack expansion, live viewport time HUD, and filter chips.
+- `JustifiedLayout.cs`: Balanced aspect-aware justified row packing with optional relevance sizing (`Moments`).
+- `MainWindow.Map.cs` & `Assets/Map/map.html`: Privacy-first Map View with one-time session consent, offline coordinate cluster fallback, and lazy zero-CDN OpenStreetMap slippy-tile viewer in `WebView2`.
+- `MainWindow.Preview.cs`: Full-screen/modal preview overlay (Spacebar), pan/zoom, offline-safe metadata sidebar, and quick triage (`F`/`T`/`M`/`Delete`).
+- `MainWindow.Organization.cs`: Album/Smart Collection management, MRU quick-move destinations, conflict resolution, and transfer undo.
+- `MainWindow.Management.cs`: Source management dialog, storage & preview maintenance, diagnostics, and activity monitor.
 - `MainWindow.Exclusions.cs`: Reversible folder, source, and extension exclusions UI.
-- `MainWindow.Offline.cs`: Offline preview generation, repair, and cache clearing.
+- `MainWindow.Offline.cs`: Offline preview generation, clickable folder breadcrumbs, and folder context actions.
 - `AppSettings.cs`: Persistent user preferences stored in `%LOCALAPPDATA%\Luma\settings.json` with corruption recovery.
 - `DiskGuard.cs`: Proactive disk-space checker safeguarding against out-of-disk write failures (< 500 MB threshold).
 - `PathRedactor.cs`: Redacts user profile paths in logs and crash reports for privacy.

@@ -15,11 +15,17 @@ The format is based on Keep a Changelog. Plain language, no em-dashes.
 ## [0.7.0] - 2026-11-11
 
 ### Added
-- Quick preview overlay triggered by Spacebar or Enter with zoom, pan, and metadata sidebar.
-- Tag Manager in Settings allowing users to rename, merge, delete, and view counts for all tags.
+- Collapsible sidebar (`Ctrl+B`), collapsible sidebar accordion sections (`Views`, `Albums`, `Smart collections`, `Folders & drives`) with item counts, and collapsible clean top toolbar mode (`Ctrl+H`).
+- Viewing layout modes in `View`: `Uniform grid`, `Natural proportions` (aspect-accurate virtualized justified rows), and `Moments (relevant size)` (highlighting favorites and stack covers), plus warm light/dark surface palettes and Windows 11 Mica backdrop.
+- Photo Stacks (`Stack burst & RAW+JPEG pairs`): non-destructive grouping of consecutive shots within 30s and same-stem RAW+JPEG pairs with inline expand/collapse.
+- Dedicated free, one-time opt-in online Map View using public OpenStreetMap tiles (`WebView2` + zero-CDN `Assets/Map/map.html`), GPS EXIF extraction (`latitude`/`longitude`), offline coordinate cluster fallback, cached thumbnail popups, and map-area gallery filtering.
+- Exact time details while browsing: optional `HH:mm:ss` card captions, rich hover tooltips, live viewport `VisibleTimeRange` header HUD, selection time-span calculations, `Day & Session` grouping, and extended camera EXIF metadata (`camera_model`, `iso`, `f_number`, `exposure_seconds`, `focal_length`).
+- Faster navigation: clickable folder breadcrumbs, `FolderList` right-click menu, exact `Jump to day` calendar picker, `Alt+Left` Back navigation history, `Home`/`End` top/bottom scroll, and Smart Collections sidebar UI with presets and `+ Save view`.
+- Cursor-safe new sorting options (`Filename`, `Resolution`, `Video duration`, and `Favorites first`) and visual `Filters` flyout (date range, orientation, minimum size, untagged, GPS, tag picker) alongside search operators (`date:`, `after:`, `before:`, `size:>`, `folder:`, `is:fav`, `is:untagged`, `is:portrait`, `has:gps`, `-tag:`, `-ext:`) and recent search history.
+- Faster, safer picture moving and curation: MRU `RecentDestinations` quick-move menu, opt-in `Auto-rename incoming` collision mode (`photo (2).jpg`), multi-file `F2` batch pattern rename (`{date}`, `{time}`, `{orig}`, `{seq}`), Spacebar preview triage hotkeys (`F`, `T`, `M`, `Delete`, `Auto-next`), and `"Review / Undo last transfer…"` from `last-transfer.json`.
+- Quick preview overlay triggered by Spacebar or Enter with zoom, pan, and offline-safe metadata sidebar.
+- Tag Manager in Settings and Organize menu allowing users to rename, merge, delete, and view counts for all tags.
 - Read-only Duplicates Finder detecting identical media by file size and content hash, with per-group Explorer reveal.
-- Smart Collections infrastructure supporting saved dynamic queries in the local catalog.
-- Advanced Search operators supporting `tag:`, `ext:`, and `year:` filter prefixes.
 - External move reconciliation detecting files moved outside Luma and re-linking tags, favorites, and albums.
 - Diagnostic info copy action in Settings producing sanitized, path-redacted system metrics.
 - Manual catalog backup and restore actions in Settings with automatic pre-action rolling backups.

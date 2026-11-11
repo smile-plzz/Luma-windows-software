@@ -6,8 +6,20 @@ public sealed record Album(string Id, string Name, long Count)
 {
     public override string ToString() => $"{Name} ({Count:N0})";
 }
-public sealed record MediaMetadata(long? TakenTicks = null, string DateOrigin = "Modification date fallback",
-    int Width = 0, int Height = 0, double DurationSeconds = 0, int Orientation = 0);
+public sealed record MediaMetadata(
+    long? TakenTicks = null,
+    string DateOrigin = "Modification date fallback",
+    int Width = 0,
+    int Height = 0,
+    double DurationSeconds = 0,
+    int Orientation = 0,
+    double? Latitude = null,
+    double? Longitude = null,
+    string? CameraModel = null,
+    int? Iso = null,
+    double? FNumber = null,
+    double? ExposureSeconds = null,
+    double? FocalLength = null);
 public interface IMetadataReader
 {
     Task<MediaMetadata> ReadAsync(string path, string kind, CancellationToken ct);
@@ -22,10 +34,53 @@ public sealed partial class MediaCache
         CREATE TABLE IF NOT EXISTS album_items(album_id TEXT NOT NULL,media_id TEXT NOT NULL,PRIMARY KEY(album_id,media_id));
         CREATE TABLE IF NOT EXISTS metadata(source_id TEXT NOT NULL,relative_path TEXT NOT NULL,length INTEGER NOT NULL,modified_ticks INTEGER NOT NULL,
             taken_ticks INTEGER,date_origin TEXT NOT NULL,width INTEGER NOT NULL,height INTEGER NOT NULL,duration REAL NOT NULL,orientation INTEGER NOT NULL,
+            latitude REAL,longitude REAL,camera_model TEXT,iso INTEGER,f_number REAL,exposure_seconds REAL,focal_length REAL,
             PRIMARY KEY(source_id,relative_path));
         CREATE TABLE IF NOT EXISTS source_labels(source_id TEXT PRIMARY KEY,label TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS ix_metadata_taken ON metadata(taken_ticks,source_id,relative_path);
         """;
+
+    private static async Task EnsureExtendedSchemaAsync(SqliteConnection db, SqliteTransaction tx, CancellationToken ct)
+    {
+        var existingCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using (var infoCmd = db.CreateCommand())
+        {
+            infoCmd.Transaction = tx;
+            infoCmd.CommandText = "PRAGMA table_info(metadata);";
+            await using var reader = await infoCmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct)) existingCols.Add(reader.GetString(1));
+        }
+
+        (string Name, string Type)[] required =
+        [
+            ("latitude", "REAL"),
+            ("longitude", "REAL"),
+            ("camera_model", "TEXT"),
+            ("iso", "INTEGER"),
+            ("f_number", "REAL"),
+            ("exposure_seconds", "REAL"),
+            ("focal_length", "REAL")
+        ];
+
+        foreach (var (col, type) in required)
+        {
+            if (!existingCols.Contains(col))
+            {
+                await using var alterCmd = db.CreateCommand();
+                alterCmd.Transaction = tx;
+                alterCmd.CommandText = $"ALTER TABLE metadata ADD COLUMN {col} {type};";
+                await alterCmd.ExecuteNonQueryAsync(ct);
+            }
+        }
+
+        await using var idxCmd = db.CreateCommand();
+        idxCmd.Transaction = tx;
+        idxCmd.CommandText = """
+            CREATE INDEX IF NOT EXISTS ix_metadata_coords ON metadata(latitude, longitude) WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS ix_metadata_dims ON metadata(width, height, duration);
+            """;
+        await idxCmd.ExecuteNonQueryAsync(ct);
+    }
 
     public async Task<IReadOnlyList<Album>> AlbumsAsync(CancellationToken ct = default)
     {
@@ -139,13 +194,15 @@ public sealed partial class MediaCache
             {
                 await using var save=db.CreateCommand(); save.Transaction=tx;
                 save.CommandText="""
-                    INSERT INTO metadata SELECT source_id,relative_path,length,modified_ticks,$taken,$origin,$width,$height,$duration,$orientation
+                    INSERT INTO metadata(source_id,relative_path,length,modified_ticks,taken_ticks,date_origin,width,height,duration,orientation,latitude,longitude,camera_model,iso,f_number,exposure_seconds,focal_length)
+                    SELECT source_id,relative_path,length,modified_ticks,$taken,$origin,$width,$height,$duration,$orientation,$lat,$lon,$cam,$iso,$fnum,$exp,$focal
                     FROM media WHERE source_id=$id AND relative_path=$path AND length=$len AND modified_ticks=$ticks
-                    ON CONFLICT(source_id,relative_path) DO UPDATE SET length=excluded.length,modified_ticks=excluded.modified_ticks,taken_ticks=excluded.taken_ticks,date_origin=excluded.date_origin,width=excluded.width,height=excluded.height,duration=excluded.duration,orientation=excluded.orientation
+                    ON CONFLICT(source_id,relative_path) DO UPDATE SET length=excluded.length,modified_ticks=excluded.modified_ticks,taken_ticks=excluded.taken_ticks,date_origin=excluded.date_origin,width=excluded.width,height=excluded.height,duration=excluded.duration,orientation=excluded.orientation,latitude=excluded.latitude,longitude=excluded.longitude,camera_model=excluded.camera_model,iso=excluded.iso,f_number=excluded.f_number,exposure_seconds=excluded.exposure_seconds,focal_length=excluded.focal_length
                     """;
-                foreach(var name in new[]{"$id","$path","$origin"})save.Parameters.Add(name,SqliteType.Text);
-                foreach(var name in new[]{"$len","$ticks","$taken","$width","$height","$orientation"})save.Parameters.Add(name,SqliteType.Integer);
-                save.Parameters.Add("$duration",SqliteType.Real); save.Prepare();
+                foreach(var name in new[]{"$id","$path","$origin","$cam"})save.Parameters.Add(name,SqliteType.Text);
+                foreach(var name in new[]{"$len","$ticks","$taken","$width","$height","$orientation","$iso"})save.Parameters.Add(name,SqliteType.Integer);
+                foreach(var name in new[]{"$duration","$lat","$lon","$fnum","$exp","$focal"})save.Parameters.Add(name,SqliteType.Real);
+                save.Prepare();
                 foreach(var (media,data) in updates)
                 {
                     save.Parameters["$id"].Value=media.SourceId; save.Parameters["$path"].Value=media.RelativePath;
@@ -153,6 +210,10 @@ public sealed partial class MediaCache
                     save.Parameters["$taken"].Value=(object?)data.TakenTicks ?? DBNull.Value; save.Parameters["$origin"].Value=data.DateOrigin;
                     save.Parameters["$width"].Value=data.Width; save.Parameters["$height"].Value=data.Height;
                     save.Parameters["$duration"].Value=data.DurationSeconds; save.Parameters["$orientation"].Value=data.Orientation;
+                    save.Parameters["$lat"].Value=(object?)data.Latitude ?? DBNull.Value; save.Parameters["$lon"].Value=(object?)data.Longitude ?? DBNull.Value;
+                    save.Parameters["$cam"].Value=(object?)data.CameraModel ?? DBNull.Value; save.Parameters["$iso"].Value=(object?)data.Iso ?? DBNull.Value;
+                    save.Parameters["$fnum"].Value=(object?)data.FNumber ?? DBNull.Value; save.Parameters["$exp"].Value=(object?)data.ExposureSeconds ?? DBNull.Value;
+                    save.Parameters["$focal"].Value=(object?)data.FocalLength ?? DBNull.Value;
                     count+=await save.ExecuteNonQueryAsync(ct);
                 }
                 await tx.CommitAsync(ct);
@@ -163,11 +224,16 @@ public sealed partial class MediaCache
     }
 
     public Task SaveMetadataAsync(CachedMedia media, MediaMetadata data, CancellationToken ct = default) => ExecuteAsync("""
-        INSERT INTO metadata VALUES($id,$path,$len,$ticks,$taken,$origin,$width,$height,$duration,$orientation)
-        ON CONFLICT(source_id,relative_path) DO UPDATE SET length=$len,modified_ticks=$ticks,taken_ticks=$taken,date_origin=$origin,width=$width,height=$height,duration=$duration,orientation=$orientation
+        INSERT INTO metadata(source_id,relative_path,length,modified_ticks,taken_ticks,date_origin,width,height,duration,orientation,latitude,longitude,camera_model,iso,f_number,exposure_seconds,focal_length)
+        VALUES($id,$path,$len,$ticks,$taken,$origin,$width,$height,$duration,$orientation,$lat,$lon,$cam,$iso,$fnum,$exp,$focal)
+        ON CONFLICT(source_id,relative_path) DO UPDATE SET length=$len,modified_ticks=$ticks,taken_ticks=$taken,date_origin=$origin,width=$width,height=$height,duration=$duration,orientation=$orientation,latitude=$lat,longitude=$lon,camera_model=$cam,iso=$iso,f_number=$fnum,exposure_seconds=$exp,focal_length=$focal
         """, ct, ("$id",media.SourceId),("$path",media.RelativePath),("$len",media.Length),("$ticks",media.ModifiedTicks),
         ("$taken",(object?)data.TakenTicks ?? DBNull.Value),("$origin",data.DateOrigin),("$width",data.Width),("$height",data.Height),
-        ("$duration",data.DurationSeconds),("$orientation",data.Orientation));
+        ("$duration",data.DurationSeconds),("$orientation",data.Orientation),
+        ("$lat",(object?)data.Latitude ?? DBNull.Value),("$lon",(object?)data.Longitude ?? DBNull.Value),
+        ("$cam",(object?)data.CameraModel ?? DBNull.Value),("$iso",(object?)data.Iso ?? DBNull.Value),
+        ("$fnum",(object?)data.FNumber ?? DBNull.Value),("$exp",(object?)data.ExposureSeconds ?? DBNull.Value),
+        ("$focal",(object?)data.FocalLength ?? DBNull.Value));
 
     // Call only after a confirmed individual filesystem move. Organization follows the stable ID.
     public async Task RelocateAsync(CachedMedia old, CachedMedia target, CancellationToken ct = default)

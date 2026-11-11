@@ -12,7 +12,7 @@ public sealed partial class MainWindow
     private async Task ExcludeSelected(string kind)
     {
         if(operation || scanning) { Notify("Pause the current work in Activity before changing exclusions."); return; }
-        var media=(contextCard ?? Selected)?.Item.Media;if(media is null)return;
+        var media=(contextCard ?? PrimarySelectedCard())?.Item.Media;if(media is null)return;
         var value=kind=="type" ? Path.GetExtension(media.RelativePath) : kind=="folder" ? Path.GetDirectoryName(media.RelativePath) ?? "" : "";
         if(kind=="folder" && value.Length==0)kind="source";
         await Guard(()=>ConfirmExclusion(new(kind,kind=="type" ? "" : media.SourceId,value)),true);

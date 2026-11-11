@@ -24,13 +24,18 @@ Luma supports full keyboard control across all interactive views:
 
 | Shortcut | Action | Scope |
 |---|---|---|
-| `Space` | Toggle Quick Preview overlay for selected or highlighted card | Gallery |
-| `Esc` | Close Preview overlay / Clear current selection | Global |
+| `Space` | Toggle Quick Preview overlay (outside Select mode) | Gallery |
+| `Esc` | Close Preview / Map overlay or Clear current selection | Global |
 | `Enter` | Open selected media in default Windows handler | Gallery |
 | `Left` / `Right` Arrow | Previous / Next media item | Preview Overlay |
+| `F` / `T` / `M` / `I` | Toggle Favorite / Edit tags / Move to folder / Details sidebar | Preview Overlay |
+| `Ctrl+B` | Toggle collapsible navigation sidebar | Global |
+| `Ctrl+H` | Toggle compact/clean gallery header mode | Global |
+| `Alt+Left` | Navigate back to previous browsing view | Global |
+| `Home` / `End` | Scroll to top or bottom of loaded gallery | Gallery |
 | `Ctrl+F` | Focus Search Box and select all text | Global |
 | `F5` | Refresh current connected source | Global |
-| `F2` | Rename selected original file | Gallery |
+| `F2` | Rename single item or Batch Rename selected files | Gallery |
 | `Delete` | Send selected original files to Windows Recycle Bin | Gallery |
 | `Ctrl+C` | Copy selected originals | Gallery |
 | `Ctrl+X` | Cut selected originals | Gallery |

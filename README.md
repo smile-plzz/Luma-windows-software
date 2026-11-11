@@ -18,11 +18,14 @@ Windows 10 version 2004+ or Windows 11, x64. The portable build bundles .NET and
 
 ## What works in v0.7.0
 
-- **Spacebar Quick Preview:** Press Spacebar on any photo or video for an immediate, read-only preview overlay with zoom, pan, and metadata sidebar.
-- **Tag Manager:** View all tags with item counts, rename or merge tags across the library, and delete unused tags in Settings.
-- **Duplicates Finder:** Fast, read-only duplicate detection grouping identical files by exact size and content hash, with per-group Explorer reveal.
-- **Smart Collections:** Save dynamic search criteria and filter rules in the local catalog.
-- **Advanced Search:** Filter using `tag:`, `ext:`, and `year:` search prefixes (e.g., `sunset tag:vacation ext:jpg year:2024`).
+- **Collapsible Clean Canvas:** Toggle the sidebar (`Ctrl+B`), collapse individual sidebar sections (`Views`, `Albums`, `Smart collections`, `Folders & drives`), or collapse the top toolbar (`Ctrl+H`) for spacious, distraction-free browsing.
+- **Photo Stacks & Adaptive Layouts:** Group 30-second bursts and RAW+JPEG pairs into expandable stacks, and switch `View -> Gallery layout` between `Uniform grid`, `Natural proportions` (no awkward portrait/panorama cropping), and `Moments` (highlighting favorites and stack covers).
+- **Dedicated Map View (Privacy-First):** Explore geotagged photos and videos on an opt-in OpenStreetMap view (zero background network calls; loads public tiles only after one-time session confirmation) or browse offline coordinate clusters and filter the gallery to any map area.
+- **Exact Time & Camera Details:** Enable `Show exact time (HH:mm:ss)` on cards, inspect live viewport time ranges and selection durations, view camera EXIF (`model`, `focal length`, `aperture`, `shutter`, `ISO`), and group by `Day & Session`.
+- **Fast Navigation, Sorting & Filtering:** Clickable folder breadcrumbs, `Jump to day`, `Alt+Left` Back history, Smart Collections sidebar presets, sorting by `Filename`/`Resolution`/`Duration`/`Favorites first`, visual `Filters` flyout, and search operators (`tag:`, `ext:`, `year:`, `date:`, `size:>10mb`, `is:untagged`, `has:gps`).
+- **Fast Curation & Moving:** Recent Move Destinations, opt-in `Auto-rename incoming` conflict handling, multi-file `F2` Batch Pattern Rename, Spacebar preview triage (`F` favorite, `T` tag, `M` move, `Del` recycle), and `"Review / Undo last transfer…"`.
+- **Spacebar Quick Preview:** Press Spacebar on any photo or video for an immediate, read-only preview overlay with zoom, pan, and offline-capable metadata sidebar.
+- **Tag Manager & Duplicates Finder:** Rename/merge/delete tags with counts, and locate exact duplicate files by size and hash with Explorer reveal.
 - **External Move Reconciliation:** Re-link catalog organization and tags when files are moved in Windows Explorer.
 - **Diagnostics & Backup:** One-click "Copy diagnostic info" (with path redaction) and manual catalog backup/restore in Settings.
 - **Library exclusions**: Right-click to hide a folder, whole source, or file extension, skip it during scans, and restore it without losing organization. [Exclusion guide](docs/EXCLUSIONS.md).

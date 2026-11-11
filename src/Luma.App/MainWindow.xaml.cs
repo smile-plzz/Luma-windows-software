@@ -44,6 +44,12 @@ public sealed partial class MainWindow : Window
     {
         catalog = new(Path.Combine(AppSettings.LocalRoot, "catalog.db"), resolver);
         InitializeComponent();
+        try
+        {
+            if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported())
+                SystemBackdrop = new MicaBackdrop();
+        }
+        catch { }
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory,"Assets","Luma.ico"));
         var work = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(AppWindow.Id,
             Microsoft.UI.Windowing.DisplayAreaFallback.Primary).WorkArea;
@@ -89,7 +95,7 @@ public sealed partial class MainWindow : Window
             cache = await Task.Run(() => new ThumbnailCache(Path.Combine(AppSettings.LocalRoot, "thumbnails"), Math.Clamp(settings.CacheGiB, 1, 32) * 1024L * 1024 * 1024));
             thumbnails = new(cache, resolver, new WindowsThumbnailGenerator());
             if (AppSettings.IsSmokeTest) await SeedSmokeFixtures();
-            await LoadSources(); await LoadAlbums(); ApplyViewSettings(); settings.Save(); availabilityTimer.Start(); await RestorePlace();
+            await LoadSources(); await LoadAlbums(); await LoadSmartCollections(); ApplyViewSettings(); settings.Save(); availabilityTimer.Start(); await RestorePlace();
         });
     }
     private async Task SeedSmokeFixtures()
@@ -166,6 +172,7 @@ public sealed partial class MainWindow : Window
             Sources.ItemsSource = choices;
             Sources.SelectedItem = choices.FirstOrDefault(s => s.Id == selected) ?? choices[0];
             ready = wasReady;
+            UpdateSidebarCounts(sourcesCount: all.Count);
             if (ready && changed)
             {
                 var online = all.Where(s => s.IsOnline).Select(s => s.Id).ToHashSet();
@@ -261,21 +268,51 @@ public sealed partial class MainWindow : Window
     private void CancelScan(object sender, RoutedEventArgs e) { scanCancellation?.Cancel(); preparationCancellation?.Cancel(); Notify("Pause requested. Finishing the current operation safely; saved progress will be retained."); }
     private void SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        var card = Selected; var selected = MediaGrid.SelectedItems.Cast<MediaCard>().ToArray();
+        UpdateSelectionChrome(GetSelectedCards());
+    }
+
+    private void UpdateSelectionChrome(MediaCard[] selected)
+    {
+        var card = PrimarySelectedCard();
         SelectionBar.Visibility = selected.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         SelectionCount.Text = $"{selected.Length:N0} selected";
-        SelectionHint.Visibility=selected.Length==0 && SelectMode.IsChecked==true ? Visibility.Visible : Visibility.Collapsed;
-        ToolTipService.SetToolTip(SelectionCount,$"{selected.Sum(c=>(double)c.Item.Media.Length)/1024/1024:N1} MB · {selected.Count(c=>!c.Item.Media.IsAvailable):N0} offline. Reconnect offline sources to copy originals.");
+        SelectionHint.Visibility = selected.Length == 0 && SelectMode.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+
+        var spanInfo = "";
+        if (selected.Length > 1)
+        {
+            var minD = selected.Min(c => c.Date);
+            var maxD = selected.Max(c => c.Date);
+            var span = maxD - minD;
+            var spanLabel = span.TotalMinutes < 1 ? $"{(int)span.TotalSeconds}s"
+                : span.TotalHours < 1 ? $"{(int)span.TotalMinutes}m"
+                : span.TotalDays < 1 ? $"{(int)span.TotalHours}h {span.Minutes}m"
+                : $"{(int)span.TotalDays}d {span.Hours}h";
+            spanInfo = $" · {minD:dd MMM HH:mm} - {maxD:HH:mm} ({spanLabel} span)";
+        }
+
+        ToolTipService.SetToolTip(SelectionCount, $"{selected.Sum(c => (double)c.Item.Media.Length) / 1024 / 1024:N1} MB · {selected.Count(c => !c.Item.Media.IsAvailable):N0} offline{spanInfo}. Reconnect offline sources to copy originals.");
         RefreshSelectionDetails();
         TagsBox.Text = card?.Item.Tags ?? ""; FavoriteButton.Content = selected.Length > 0 && selected.All(c => c.Item.Favorite) ? "★ Unfavorite" : "☆ Favorite";
     }
+
     private void RefreshSelectionDetails()
     {
-        var card = Selected;
+        var card = PrimarySelectedCard();
         var meta = card?.Item.Metadata;
-        var dimensions=meta?.Width > 0 && meta.Height > 0 ? $"{meta.Width} × {meta.Height}" : "Dimensions unavailable";
-        var taken=meta?.TakenTicks is long ticks ? new DateTime(ticks,DateTimeKind.Utc).ToLocalTime().ToString("dd MMM yyyy HH:mm") : "Unavailable";
-        SelectionText.Text = card is null ? "Select media to inspect" : $"{card.Name}\n\n{card.Item.Media.RelativePath}\n\n{card.Item.Media.Length / 1024d:N0} KB · {card.Item.Media.Kind}\n{dimensions}\n{(meta?.DurationSeconds > 0 ? TimeSpan.FromSeconds(meta.DurationSeconds).ToString() : "")}\n\nTaken: {taken}\nModified: {new DateTime(card.Item.Media.ModifiedTicks,DateTimeKind.Utc).ToLocalTime():dd MMM yyyy HH:mm}\n{meta?.DateOrigin}\n\n{(card.Item.Media.IsAvailable ? "Source connected" : "Offline preview · reconnect to open original")}";
+        var dimensions = meta?.Width > 0 && meta.Height > 0 ? $"{meta.Width} × {meta.Height}" : "Dimensions unavailable";
+        var taken = meta?.TakenTicks is long ticks ? new DateTime(ticks, DateTimeKind.Utc).ToLocalTime().ToString("dd MMM yyyy HH:mm:ss") : "Unavailable";
+        var camParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(meta?.CameraModel)) camParts.Add(meta.CameraModel);
+        if (meta?.FocalLength is double fl) camParts.Add($"{fl:0.#}mm");
+        if (meta?.FNumber is double fn) camParts.Add($"f/{fn:0.#}");
+        if (meta?.ExposureSeconds is double exp) camParts.Add(exp < 1 && exp > 0 ? $"1/{Math.Round(1 / exp)}s" : $"{exp:0.##}s");
+        if (meta?.Iso is int iso) camParts.Add($"ISO {iso}");
+        var camLine = camParts.Count > 0 ? "\nCamera: " + string.Join(" · ", camParts) : "";
+        var gpsLine = meta?.Latitude is double lat && meta.Longitude is double lon ? $"\nGPS: {lat:0.00000}, {lon:0.00000}" : "";
+        InspectorMapButton.Visibility = meta?.Latitude is not null ? Visibility.Visible : Visibility.Collapsed;
+
+        SelectionText.Text = card is null ? "Select media to inspect" : $"{card.Name}\n\n{card.Item.Media.RelativePath}\n\n{card.Item.Media.Length / 1024d:N0} KB · {card.Item.Media.Kind}\n{dimensions}\n{(meta?.DurationSeconds > 0 ? TimeSpan.FromSeconds(meta.DurationSeconds).ToString(@"hh\:mm\:ss") : "")}\n\nTaken: {taken}\nModified: {new DateTime(card.Item.Media.ModifiedTicks, DateTimeKind.Utc).ToLocalTime():dd MMM yyyy HH:mm:ss}\n{meta?.DateOrigin}{camLine}{gpsLine}\n\n{(card.Item.Media.IsAvailable ? "Source connected" : "Offline preview · reconnect to open original")}";
     }
     private void GridRightTapped(object sender, RightTappedRoutedEventArgs e)
     {
@@ -295,18 +332,20 @@ public sealed partial class MainWindow : Window
     }
     private Task Open()
     {
-        if (Selected is not null) ShellFiles.OpenInDefaultApp(Resolve(Selected.Item.Media));
+        var target = PrimarySelectedCard();
+        if (target is not null) ShellFiles.OpenInDefaultApp(Resolve(target.Item.Media));
         return Task.CompletedTask;
     }
     private async void OpenSelected(object sender, RoutedEventArgs e) => await Guard(Open);
     private async void RevealSelected(object sender, RoutedEventArgs e) => await Guard(() =>
     {
-        if (Selected is not null) ShellFiles.RevealInExplorer(Resolve(Selected.Item.Media));
+        var target = PrimarySelectedCard();
+        if (target is not null) ShellFiles.RevealInExplorer(Resolve(target.Item.Media));
         return Task.CompletedTask;
     });
     private async void CopyPath(object sender, RoutedEventArgs e) => await ClipboardAction(async () =>
     {
-        var selected=MediaGrid.SelectedItems.Cast<MediaCard>().Select(c=>c.Item.Media).ToArray();
+        var selected=GetSelectedCards().Select(c=>c.Item.Media).ToArray();
         if(selected.Length==0)return;
         var paths=await Task.Run(()=>selected.Select(Resolve).ToArray());
         var data=new DataPackage(); data.SetText(string.Join(Environment.NewLine,paths)); Clipboard.SetContent(data); Clipboard.Flush();
@@ -323,7 +362,7 @@ public sealed partial class MainWindow : Window
     }
     private async Task Copy(bool cut)
     {
-        var selected = MediaGrid.SelectedItems.Cast<MediaCard>().ToArray(); if (selected.Length == 0) return;
+        var selected = GetSelectedCards(); if (selected.Length == 0) return;
         var files = new List<IStorageItem>();
         if(!scanning && !preparing)Status.Text=$"Preparing {selected.Length:N0} files for the clipboard…";
         var paths=await Task.Run(()=>selected.Select(c=>Resolve(c.Item.Media)).ToArray());
@@ -350,14 +389,20 @@ public sealed partial class MainWindow : Window
     private async void PasteSelected(object sender, RoutedEventArgs e) => await Guard(Paste, true);
     private async Task Delete()
     {
-        if (scanning) return; var selected = MediaGrid.SelectedItems.Cast<MediaCard>().ToArray(); if (selected.Length == 0) return;
+        if (scanning) return; var selected = GetSelectedCards(); if (selected.Length == 0) return;
         if (!await Confirm("Delete selected originals?", $"Send {selected.Length} file(s) to the Recycle Bin. Windows may warn if this drive does not support recycling. Check its confirmation carefully.", "Continue")) return;
         ShellFiles.Run(Handle, 3, selected.Select(c => Resolve(c.Item.Media))); await RescanCurrent();
     }
     private async void DeleteSelected(object sender, RoutedEventArgs e) => await Guard(Delete, true);
     private async Task Rename()
     {
-        if (scanning || Selected is null) return; var media = Selected.Item.Media;
+        if (scanning) return;
+        var selected = GetSelectedCards();
+        if (selected.Length == 0) return;
+        if (selected.Length > 1) { await BatchRenameAsync(selected); return; }
+
+        var single = selected[0];
+        var media = single.Item.Media;
         var name = await Prompt("Rename file", "Keep the extension to preserve its file type.", Path.GetFileName(media.RelativePath));
         if (name is null || name == Path.GetFileName(media.RelativePath)) return;
         if (string.IsNullOrWhiteSpace(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.EndsWith('.') || name.EndsWith(' '))
@@ -369,17 +414,67 @@ public sealed partial class MainWindow : Window
         catch { Notify("File renamed, but catalog update failed. Keep the old catalog; restore the filename in Explorer before retrying.", true); throw; }
         await LoadAlbums(); await Refresh();
     }
+
+    private async Task BatchRenameAsync(MediaCard[] selected)
+    {
+        var patternBox = new TextBox { Header = "Filename pattern (tokens: {date}, {time}, {orig}, {seq})", Text = "{date}_{orig}" };
+        var previewList = new ListView { MaxHeight = 220, SelectionMode = ListViewSelectionMode.None };
+        void RefreshPreview()
+        {
+            previewList.Items.Clear();
+            for (int i = 0; i < Math.Min(selected.Length, 40); i++)
+            {
+                var c = selected[i];
+                var nextName = BatchRenameFormatter.FormatName(patternBox.Text, c.Item, i + 1, selected.Length);
+                previewList.Items.Add($"{c.Name} -> {nextName}");
+            }
+            if (selected.Length > 40) previewList.Items.Add($"... and {selected.Length - 40} more");
+        }
+        patternBox.TextChanged += (_, _) => RefreshPreview();
+        RefreshPreview();
+
+        var panel = new StackPanel { Spacing = 10, MinWidth = 420 };
+        panel.Children.Add(Description($"Batch rename {selected.Length:N0} selected files. Original extensions are preserved and existing collisions are skipped."));
+        panel.Children.Add(patternBox);
+        panel.Children.Add(previewList);
+
+        var dialog = new ContentDialog { RequestedTheme = Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = "Batch rename files", Content = panel, PrimaryButtonText = $"Rename {selected.Length:N0} files", CloseButtonText = "Cancel" };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        int renamedCount = 0, skippedCount = 0;
+        for (int i = 0; i < selected.Length; i++)
+        {
+            var c = selected[i];
+            var media = c.Item.Media;
+            var newName = BatchRenameFormatter.FormatName(patternBox.Text, c.Item, i + 1, selected.Length);
+            if (string.Equals(newName, Path.GetFileName(media.RelativePath), StringComparison.OrdinalIgnoreCase)) { skippedCount++; continue; }
+            try
+            {
+                var original = Resolve(media);
+                var target = Path.Combine(Path.GetDirectoryName(original)!, newName);
+                if (File.Exists(target)) { skippedCount++; continue; }
+                File.Move(original, target);
+                var updated = media with { RelativePath = Path.Combine(Path.GetDirectoryName(media.RelativePath) ?? "", newName) };
+                await catalog.RelocateAsync(media, updated);
+                renamedCount++;
+            }
+            catch { skippedCount++; }
+        }
+        await LoadAlbums(); await Refresh();
+        Notify($"Batch rename finished: {renamedCount:N0} renamed, {skippedCount:N0} skipped.");
+    }
+
     private async void RenameSelected(object sender, RoutedEventArgs e) => await Guard(Rename, true);
     private async void ToggleFavorite(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
-        var selected = MediaGrid.SelectedItems.Cast<MediaCard>().ToArray(); if (selected.Length == 0) return;
+        var selected = GetSelectedCards(); if (selected.Length == 0) return;
         var favorite = !selected.All(c => c.Item.Favorite);
         foreach (var card in selected) await catalog.AnnotateAsync(card.Item.Media, favorite, card.Item.Tags);
         await Refresh(); Notify($"{selected.Length:N0} item(s) {(favorite ? "added to" : "removed from")} Favorites.");
     }, true);
     private async void SaveTags(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
-        var selected = MediaGrid.SelectedItems.Cast<MediaCard>().ToArray();
+        var selected = GetSelectedCards();
         if (selected.Length > 1 && !await Confirm("Replace tags on selected files?", $"Replace tags for {selected.Length} selected items with the entered list.", "Save tags")) return;
         if(selected.Length==0) {Notify("Select a file before saving tags.");return;}
         foreach (var card in selected) await catalog.AnnotateAsync(card.Item.Media, card.Item.Favorite, TagsBox.Text);
@@ -447,10 +542,30 @@ public sealed partial class MainWindow : Window
     private async void PasteShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e) { if (HandleShortcut(e)) await Guard(Paste, true); }
     private async void DeleteShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e) { if (HandleShortcut(e)) await Guard(Delete, true); }
     private async void RenameShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e) { if (HandleShortcut(e)) await Guard(Rename, true); }
-    private void SelectShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e) { if (HandleShortcut(e)) { MediaGrid.SelectAll(); Notify($"Selected {cards.Count:N0} loaded items. Use Select all matching results in the context menu for the entire result set."); } }
+    private void SelectShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e) { if (HandleShortcut(e)) { SelectLoaded(sender, new RoutedEventArgs()); Notify($"Selected {cards.Count:N0} loaded items. Use Select all matching results in the context menu for the entire result set."); } }
     private void SearchShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e)
     {
         if (HandleShortcut(e)) { SearchBox.Focus(FocusState.Programmatic); SearchBox.SelectAll(); }
+    }
+    private void ToggleSidebarShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e)
+    {
+        if (HandleShortcut(e)) ToggleSidebar(sender, new RoutedEventArgs());
+    }
+    private void ToggleHeaderShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e)
+    {
+        if (HandleShortcut(e)) ToggleHeader(sender, new RoutedEventArgs());
+    }
+    private async void BackHistoryShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e)
+    {
+        if (HandleShortcut(e)) await DoNavigateBack();
+    }
+    private void ScrollTopShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e)
+    {
+        if (HandleShortcut(e)) ScrollToTop();
+    }
+    private void ScrollBottomShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e)
+    {
+        if (HandleShortcut(e)) ScrollToBottom();
     }
     private async void RefreshShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e)
     {
@@ -467,12 +582,20 @@ public sealed partial class MainWindow : Window
             DoClosePreview();
             e.Handled = true;
         }
-        else if (MediaGrid.SelectedItems.Count > 0)
+        else if (MapOverlay.Visibility == Visibility.Visible)
         {
-            MediaGrid.SelectedItems.Clear();
+            MapOverlay.Visibility = Visibility.Collapsed;
+            e.Handled = true;
+        }
+        else if (GetSelectedCards().Length > 0)
+        {
+            ClearAllSelections();
             e.Handled = true;
         }
     }
+
+    private async void OpenTagManagerMenu(object sender, RoutedEventArgs e) => await Guard(OpenTagManager, true);
+    private async void OpenDuplicatesMenu(object sender, RoutedEventArgs e) => await Guard(OpenDuplicatesFinder, true);
 
     private async Task CopyDiagnosticInfo()
     {

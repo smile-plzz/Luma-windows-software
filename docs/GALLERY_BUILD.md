@@ -155,3 +155,13 @@ Reversible folder, source and global extension rules now filter browsing and fut
 ## Final experience refinement
 
 Saved browsing position, explicit discovery/date-reading progress, accessible action hints and theme-matched dialogs complete the planned build. See [behavior and limits](FINAL_EXPERIENCE.md). Verified shipment evidence is recorded in the testing handoff.
+
+
+## v0.7.0 Workspace, Viewing, Map, and Navigation Additions
+
+- Collapsible workspace chrome: `Ctrl+B` collapses the sidebar to 0 px (`SidebarCollapsed`), `Ctrl+H` collapses the top controls (`HeaderCollapsed`), accordion sections collapse `Views`, `Albums`, `Smart collections`, and `Folders & drives` with collapsed item counts, and action popovers (`Filters`, `Organize`) plus `SelectionBar` reveal controls on demand.
+- Viewing layouts and non-destructive stacks: `LayoutMode` switches between `Uniform` grid cards and virtualized `Adaptive` / `Moments` justified rows (`JustifiedRowBuilder` with 1.28x sizing for favorites and stacks), alongside `PhotoStackBuilder` grouping for RAW+JPEG pairs and bursts within 30 seconds.
+- Exact time and metadata ergonomics: `Show exact time (HH:mm:ss)` card captions, `VisibleTimeRange` header HUD, selection time span, `Day & Session` grouping, camera EXIF plus GPS schema columns (`latitude`, `longitude`, `camera_model`, `iso`, `f_number`, `exposure_seconds`, `focal_length`), and offline-safe `PopulatePreviewMetadata`.
+- Navigation, sorting, filtering, and Smart Collections: clickable `FolderBreadcrumbs`, `DayJumpPicker`, `Alt+Left` navigation history, `Home`/`End` gallery scroll, cursor-safe `Filename` / `Resolution` / `Duration` / `FavoritesFirst` sorting, extended search operators (`date:`, `after:`, `before:`, `size:>`, `size:<`, `folder:`, `is:fav`, `is:untagged`, `is:portrait`, `is:landscape`, `is:square`, `is:4k`, `has:gps`, `-tag:`, `-ext:`), and Smart Collections UI with `+ Save view`.
+- Dedicated one-time Map View: lazy `WebView2` map (`Assets/Map/map.html`) gated behind an explicit one-time session consent prompt with offline coordinate cluster fallback, cached base64 thumbnail popups, and `GeoBounds` gallery filtering.
+- Fast transfers and curation: `RecentDestinations`, opt-in `TransferConflictMode.Rename`, multi-file `F2` batch rename tokens (`{date}`, `{time}`, `{orig}`, `{seq}`), Spacebar preview triage hotkeys (`F`, `T`, `M`, `Delete`, `Auto-next`), and `last-transfer.json` review/undo.

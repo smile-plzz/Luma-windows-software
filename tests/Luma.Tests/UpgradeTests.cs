@@ -206,5 +206,20 @@ public sealed class UpgradeTests : IDisposable
         Assert.Single(sources);
         var page = await catalog.QueryAsync(new LibraryQuery());
         Assert.Equal(1, page.Total);
+
+        // Verify extended GPS and camera EXIF columns were safely added
+        await using (var db = new SqliteConnection($"Data Source={DbPath}"))
+        {
+            await db.OpenAsync();
+            await using var cmd = db.CreateCommand();
+            cmd.CommandText = "PRAGMA table_info(metadata);";
+            var cols = new List<string>();
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) cols.Add(r.GetString(1));
+            Assert.Contains("latitude", cols);
+            Assert.Contains("longitude", cols);
+            Assert.Contains("camera_model", cols);
+            Assert.Contains("iso", cols);
+        }
     }
 }

@@ -13,9 +13,11 @@ public sealed partial class MainWindow
 {
     private CancellationTokenSource? previewCancellation;
     private MediaCard? previewingCard;
+    private bool previewMutatedGallery;
 
     private void SpacePreviewShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
+        if (SelectMode.IsChecked == true && PreviewOverlay.Visibility != Visibility.Visible) return;
         var focused = FocusManager.GetFocusedElement(this.Content.XamlRoot);
         if (focused is TextBox or PasswordBox) return;
 
@@ -31,7 +33,7 @@ public sealed partial class MainWindow
         }
         else
         {
-            var card = Selected ?? (cards.Count > 0 ? cards[0] : null);
+            var card = PrimarySelectedCard() ?? (cards.Count > 0 ? cards[0] : null);
             if (card is not null)
             {
                 OpenPreviewFor(card);
@@ -48,18 +50,18 @@ public sealed partial class MainWindow
 
         var index = cards.IndexOf(card);
         PreviewPosition.Text = index >= 0 ? $"{index + 1} of {cards.Count}" : "";
+        PreviewExactTimeBadge.Text = card.ExactDateText;
+        PreviewFavoriteButton.Content = card.Item.Favorite ? "★ (F)" : "☆ (F)";
+        PreviewMapButton.Visibility = card.Item.Metadata?.Latitude is not null ? Visibility.Visible : Visibility.Collapsed;
 
         // Offline status indicator
         PreviewOfflineBadge.Visibility = card.Item.Media.IsAvailable ? Visibility.Collapsed : Visibility.Visible;
 
-        // Populate metadata sidebar details
+        // Populate metadata sidebar details cleanly from cached item (works offline)
         PopulatePreviewMetadata(card);
 
         // Immediate display: show existing thumbnail as immediate preview
-        if (card.Thumbnail is not null)
-        {
-            PreviewImage.Source = card.Thumbnail;
-        }
+        PreviewImage.Source = card.Thumbnail;
 
         // Cancel previous high-res loading if running
         previewCancellation?.Cancel();
@@ -70,14 +72,12 @@ public sealed partial class MainWindow
         PreviewLoading.IsActive = true;
         try
         {
-            // If the drive is online, load full original image or large preview
             if (card.Item.Media.IsAvailable)
             {
                 var originalPath = Resolve(card.Item.Media);
                 if (File.Exists(originalPath))
                 {
                     var ext = Path.GetExtension(originalPath).ToLowerInvariant();
-                    // For standard images, load directly
                     if (ext is ".jpg" or ".jpeg" or ".png" or ".bmp" or ".webp" or ".gif")
                     {
                         var storageFile = await StorageFile.GetFileFromPathAsync(originalPath).AsTask(ct);
@@ -87,31 +87,23 @@ public sealed partial class MainWindow
                             var highResBitmap = new BitmapImage();
                             await highResBitmap.SetSourceAsync(stream);
                             if (!ct.IsCancellationRequested && ReferenceEquals(previewingCard, card))
-                            {
                                 PreviewImage.Source = highResBitmap;
-                            }
                         }
                     }
                     else
                     {
-                        // For RAW, HEIC or video, fetch 1024px preview from thumbnail generator
                         var bytes = await Task.Run(() => thumbnails!.GetAsync(card.Item.Media, 1024, ct), ct);
                         if (bytes is not null && !ct.IsCancellationRequested && ReferenceEquals(previewingCard, card))
-                        {
-                            using var memStream = new InMemoryRandomAccessStream();
-                            using (var writer = new DataWriter(memStream.GetOutputStreamAt(0)))
-                            {
-                                writer.WriteBytes(bytes);
-                                await writer.StoreAsync();
-                                await writer.FlushAsync();
-                            }
-                            memStream.Seek(0);
-                            var highRes = new BitmapImage();
-                            await highRes.SetSourceAsync(memStream);
-                            PreviewImage.Source = highRes;
-                        }
+                            await ApplyPreviewBytesAsync(bytes);
                     }
                 }
+            }
+            else if (card.Thumbnail is null && thumbnails is not null)
+            {
+                // Offline fallback from local disk cache
+                var cachedBytes = await UseCache(() => thumbnails.GetAsync(card.Item.Media, 256, ct));
+                if (cachedBytes is not null && !ct.IsCancellationRequested && ReferenceEquals(previewingCard, card))
+                    await ApplyPreviewBytesAsync(cachedBytes);
             }
         }
         catch (OperationCanceledException) { }
@@ -122,29 +114,68 @@ public sealed partial class MainWindow
         }
     }
 
+    private async Task ApplyPreviewBytesAsync(byte[] bytes)
+    {
+        using var memStream = new InMemoryRandomAccessStream();
+        using (var writer = new DataWriter(memStream.GetOutputStreamAt(0)))
+        {
+            writer.WriteBytes(bytes);
+            await writer.StoreAsync();
+            await writer.FlushAsync();
+        }
+        memStream.Seek(0);
+        var highRes = new BitmapImage();
+        await highRes.SetSourceAsync(memStream);
+        PreviewImage.Source = highRes;
+    }
+
     private void PopulatePreviewMetadata(MediaCard card)
     {
-        var originalPath = Resolve(card.Item.Media);
+        var meta = card.Item.Metadata;
         var sizeMB = card.Item.Media.Length / (1024.0 * 1024.0);
-        var dateTaken = card.Date;
+        var taken = meta?.TakenTicks is long tt ? new DateTime(tt, DateTimeKind.Utc).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") : "Unavailable";
+        var modified = new DateTime(card.Item.Media.ModifiedTicks, DateTimeKind.Utc).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
 
-        var text = $"Name: {card.Name}\n" +
-                   $"Folder: {Path.GetDirectoryName(card.Item.Media.RelativePath)}\n" +
-                   $"Size: {sizeMB:N2} MB ({card.Item.Media.Length:N0} bytes)\n" +
-                   $"Date: {dateTaken:yyyy-MM-dd HH:mm:ss}\n" +
-                   $"Status: {(card.Item.Media.IsAvailable ? "Connected" : "Offline")}\n";
-
-        if (!string.IsNullOrEmpty(card.Group))
+        var lines = new List<string>
         {
-            text += $"Timeline: {card.Group}\n";
-        }
+            $"Name: {card.Name}",
+            $"Folder: {Path.GetDirectoryName(card.Item.Media.RelativePath)}",
+            $"Size: {sizeMB:N2} MB ({card.Item.Media.Length:N0} bytes)",
+            $"Taken: {taken}",
+            $"Modified: {modified}",
+            $"Date origin: {meta?.DateOrigin ?? "Modification date fallback"}"
+        };
 
-        PreviewDetailsText.Text = text;
+        if (meta is { Width: > 0, Height: > 0 })
+            lines.Add($"Dimensions: {meta.Width} x {meta.Height}");
+        if (meta is { DurationSeconds: > 0 })
+            lines.Add($"Duration: {TimeSpan.FromSeconds(meta.DurationSeconds):hh\\:mm\\:ss}");
+
+        var camParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(meta?.CameraModel)) camParts.Add(meta.CameraModel);
+        if (meta?.FocalLength is double fl) camParts.Add($"{fl:0.#}mm");
+        if (meta?.FNumber is double fn) camParts.Add($"f/{fn:0.#}");
+        if (meta?.ExposureSeconds is double exp) camParts.Add(exp < 1 && exp > 0 ? $"1/{Math.Round(1 / exp)}s" : $"{exp:0.##}s");
+        if (meta?.Iso is int iso) camParts.Add($"ISO {iso}");
+        if (camParts.Count > 0)
+            lines.Add("Camera: " + string.Join(" · ", camParts));
+
+        if (meta?.Latitude is double lat && meta.Longitude is double lon)
+            lines.Add($"Coordinates: {lat:0.00000}, {lon:0.00000}");
+
+        if (!string.IsNullOrWhiteSpace(card.Item.Tags))
+            lines.Add($"Tags: {card.Item.Tags}");
+
+        lines.Add($"Status: {(card.Item.Media.IsAvailable ? "Connected" : "Offline")}");
+        if (!string.IsNullOrEmpty(card.Group))
+            lines.Add($"Timeline: {card.Group}");
+
+        PreviewDetailsText.Text = string.Join("\n", lines);
     }
 
     private void ClosePreview(object sender, RoutedEventArgs e) => DoClosePreview();
 
-    private void DoClosePreview()
+    private async void DoClosePreview()
     {
         previewCancellation?.Cancel();
         previewCancellation?.Dispose();
@@ -153,8 +184,14 @@ public sealed partial class MainWindow
         PreviewImage.Source = null;
         previewingCard = null;
 
-        // Restore focus to grid
-        MediaGrid.Focus(FocusState.Programmatic);
+        if (previewMutatedGallery)
+        {
+            previewMutatedGallery = false;
+            await Guard(Refresh);
+        }
+
+        if (settings.LayoutMode == "Uniform")
+            MediaGrid.Focus(FocusState.Programmatic);
     }
 
     private void PreviewPrevious(object sender, RoutedEventArgs e) => DoPreviewPrevious();
@@ -166,7 +203,7 @@ public sealed partial class MainWindow
         if (index > 0)
         {
             var prev = cards[index - 1];
-            MediaGrid.SelectedItem = prev;
+            SelectSingleCard(prev);
             OpenPreviewFor(prev);
         }
     }
@@ -180,7 +217,7 @@ public sealed partial class MainWindow
         if (index >= 0 && index < cards.Count - 1)
         {
             var next = cards[index + 1];
-            MediaGrid.SelectedItem = next;
+            SelectSingleCard(next);
             OpenPreviewFor(next);
         }
     }
@@ -196,7 +233,8 @@ public sealed partial class MainWindow
     {
         if (previewingCard is not null)
         {
-            ShellFiles.OpenInDefaultApp(Resolve(previewingCard.Item.Media));
+            try { ShellFiles.OpenInDefaultApp(Resolve(previewingCard.Item.Media)); }
+            catch (Exception ex) { Notify(ex.Message, true); }
         }
     }
 
@@ -204,24 +242,99 @@ public sealed partial class MainWindow
     {
         if (previewingCard is not null)
         {
-            ShellFiles.RevealInExplorer(Resolve(previewingCard.Item.Media));
+            try { ShellFiles.RevealInExplorer(Resolve(previewingCard.Item.Media)); }
+            catch (Exception ex) { Notify(ex.Message, true); }
+        }
+    }
+
+    private async void PreviewToggleFavorite(object sender, RoutedEventArgs e) => await DoPreviewToggleFavorite();
+
+    private async Task DoPreviewToggleFavorite()
+    {
+        if (previewingCard is null) return;
+        var card = previewingCard;
+        var newFav = !card.Item.Favorite;
+        await catalog.AnnotateAsync(card.Item.Media, newFav, card.Item.Tags);
+        card.UpdateItem(card.Item with { Favorite = newFav });
+        PreviewFavoriteButton.Content = newFav ? "★ (F)" : "☆ (F)";
+        previewMutatedGallery = true;
+        Notify(newFav ? "Added to Favorites." : "Removed from Favorites.");
+    }
+
+    private async void PreviewQuickTag(object sender, RoutedEventArgs e) => await DoPreviewQuickTag();
+
+    private async Task DoPreviewQuickTag()
+    {
+        if (previewingCard is null) return;
+        var card = previewingCard;
+        var updatedTags = await Prompt("Edit tags", "Comma-separated tags for this item:", card.Item.Tags);
+        if (updatedTags is null) return;
+        await catalog.AnnotateAsync(card.Item.Media, card.Item.Favorite, updatedTags);
+        card.UpdateItem(card.Item with { Tags = updatedTags });
+        PopulatePreviewMetadata(card);
+        previewMutatedGallery = true;
+        Notify("Tags updated.");
+    }
+
+    private async void PreviewQuickMove(object sender, RoutedEventArgs e) => await DoPreviewQuickMove();
+
+    private async Task DoPreviewQuickMove()
+    {
+        if (previewingCard is null) return;
+        var card = previewingCard;
+        var destination = await PickQuickDestinationOrBrowseAsync("Move file to folder");
+        if (destination is null) return;
+
+        var original = Resolve(card.Item.Media);
+        var currentIndex = cards.IndexOf(card);
+        if (await TransferPaths([original], [card.Item.Media], destination, move: true))
+        {
+            previewMutatedGallery = false;
+            if (PreviewAutoAdvanceToggle.IsChecked == true && cards.Count > 0)
+            {
+                var nextIdx = Math.Clamp(currentIndex, 0, cards.Count - 1);
+                OpenPreviewFor(cards[nextIdx]);
+            }
+            else
+            {
+                DoClosePreview();
+            }
+        }
+    }
+
+    private async void PreviewDelete(object sender, RoutedEventArgs e) => await DoPreviewDelete();
+
+    private async Task DoPreviewDelete()
+    {
+        if (previewingCard is null || scanning) return;
+        var card = previewingCard;
+        if (!await Confirm("Delete original?", $"Send {card.Name} to the Recycle Bin?", "Continue")) return;
+
+        var currentIndex = cards.IndexOf(card);
+        ShellFiles.Run(Handle, 3, new[] { Resolve(card.Item.Media) });
+        await RescanCurrent();
+        previewMutatedGallery = false;
+        if (PreviewAutoAdvanceToggle.IsChecked == true && cards.Count > 0)
+        {
+            var nextIdx = Math.Clamp(currentIndex, 0, cards.Count - 1);
+            OpenPreviewFor(cards[nextIdx]);
+        }
+        else
+        {
+            DoClosePreview();
         }
     }
 
     private void PreviewScroller_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
         if (PreviewScroller.ZoomFactor > 1.1f)
-        {
             PreviewScroller.ChangeView(null, null, 1.0f);
-        }
         else
-        {
             PreviewScroller.ChangeView(null, null, 2.5f);
-        }
         e.Handled = true;
     }
 
-    private void PreviewOverlay_KeyDown(object sender, KeyRoutedEventArgs e)
+    private async void PreviewOverlay_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         switch (e.Key)
         {
@@ -244,11 +357,30 @@ public sealed partial class MainWindow
                     : Visibility.Visible;
                 e.Handled = true;
                 break;
+            case VirtualKey.F:
+                await Guard(DoPreviewToggleFavorite, true);
+                e.Handled = true;
+                break;
+            case VirtualKey.T:
+                await Guard(DoPreviewQuickTag, true);
+                e.Handled = true;
+                break;
+            case VirtualKey.M:
+                await Guard(DoPreviewQuickMove, true);
+                e.Handled = true;
+                break;
+            case VirtualKey.Delete:
+                await Guard(DoPreviewDelete, true);
+                e.Handled = true;
+                break;
             case VirtualKey.Enter:
-                if (previewingCard is not null) ShellFiles.OpenInDefaultApp(Resolve(previewingCard.Item.Media));
+                if (previewingCard is not null)
+                {
+                    try { ShellFiles.OpenInDefaultApp(Resolve(previewingCard.Item.Media)); }
+                    catch (Exception ex) { Notify(ex.Message, true); }
+                }
                 e.Handled = true;
                 break;
         }
     }
 }
-

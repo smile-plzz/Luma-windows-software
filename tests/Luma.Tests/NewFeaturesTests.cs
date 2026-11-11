@@ -148,4 +148,140 @@ public class NewFeaturesTests : IDisposable
         var empty = await catalog.SmartCollectionsAsync();
         Assert.Empty(empty);
     }
+
+    [Fact]
+    public void PhotoStackBuilder_GroupsRawJpegPairsAndConsecutiveBursts()
+    {
+        var baseTime = new DateTime(2026, 6, 15, 14, 0, 0, DateTimeKind.Utc);
+        var items = new[]
+        {
+            new LibraryItem(new CachedMedia("s1", "IMG_001.CR3", 20_000_000, baseTime.Ticks, "photo", true), false, "", "1", new MediaMetadata(baseTime.Ticks)),
+            new LibraryItem(new CachedMedia("s1", "IMG_001.JPG", 4_000_000, baseTime.Ticks, "photo", true), false, "", "2", new MediaMetadata(baseTime.Ticks)),
+            new LibraryItem(new CachedMedia("s1", "BURST_1.JPG", 3_000_000, baseTime.AddMinutes(5).Ticks, "photo", true), false, "", "3", new MediaMetadata(baseTime.AddMinutes(5).Ticks)),
+            new LibraryItem(new CachedMedia("s1", "BURST_2.JPG", 3_100_000, baseTime.AddMinutes(5).AddSeconds(10).Ticks, "photo", true), true, "", "4", new MediaMetadata(baseTime.AddMinutes(5).AddSeconds(10).Ticks)),
+            new LibraryItem(new CachedMedia("s1", "LATER.JPG", 3_200_000, baseTime.AddHours(2).Ticks, "photo", true), false, "", "5", new MediaMetadata(baseTime.AddHours(2).Ticks)),
+        };
+
+        var stacks = PhotoStackBuilder.Build(items, allowBurstClustering: true, burstSeconds: 30);
+        Assert.Equal(3, stacks.Count);
+
+        // First stack: RAW+JPEG pair picks JPG cover
+        Assert.True(stacks[0].IsStack);
+        Assert.Equal("IMG_001.JPG", stacks[0].Cover.Media.RelativePath);
+        Assert.Equal(2, stacks[0].Items.Count);
+
+        // Second stack: Burst picks Favorited frame as cover
+        Assert.True(stacks[1].IsStack);
+        Assert.Equal("BURST_2.JPG", stacks[1].Cover.Media.RelativePath);
+        Assert.Equal(2, stacks[1].Items.Count);
+
+        // Third item: standalone
+        Assert.False(stacks[2].IsStack);
+        Assert.Equal("LATER.JPG", stacks[2].Cover.Media.RelativePath);
+    }
+
+    [Fact]
+    public void BatchRenameFormatter_AppliesTokensAndLocksExtension()
+    {
+        var utc = new DateTime(2025, 8, 14, 9, 30, 15, DateTimeKind.Utc);
+        var local = utc.ToLocalTime();
+        var item = new LibraryItem(
+            new CachedMedia("s1", "Trips/DCIM_001.JPG", 1024, utc.Ticks, "photo", true),
+            false, "", "1", new MediaMetadata(utc.Ticks));
+
+        var renamed = BatchRenameFormatter.FormatName("{date}_{time}_{orig}_{seq}", item, 7, 120);
+        Assert.Equal($"{local:yyyy-MM-dd}_{local:HHmmss}_DCIM_001_007.JPG", renamed);
+
+        var sanitized = BatchRenameFormatter.FormatName("bad:name*{orig}", item, 1, 5);
+        Assert.Equal("bad_name_DCIM_001.JPG", sanitized);
+    }
+
+    [Fact]
+    public async Task FileTransfer_ConflictModeRename_GeneratesUniqueFilenameWithoutOverwriting()
+    {
+        var srcDir = Path.Combine(tempDir, "Src");
+        var dstDir = Path.Combine(tempDir, "Dst");
+        Directory.CreateDirectory(srcDir);
+        Directory.CreateDirectory(dstDir);
+
+        var srcFile = Path.Combine(srcDir, "pic.jpg");
+        var existingDst = Path.Combine(dstDir, "pic.jpg");
+        File.WriteAllText(srcFile, "incoming-content");
+        File.WriteAllText(existingDst, "original-dst-content");
+
+        var result = await FileTransfer.RunAsync(srcFile, Path.Combine(dstDir, "pic.jpg"), move: false, () => true, CancellationToken.None, TransferConflictMode.Rename);
+        Assert.True(result.Copied);
+        Assert.Null(result.Error);
+        Assert.Equal(Path.Combine(dstDir, "pic (2).jpg"), result.Destination);
+        Assert.Equal("original-dst-content", File.ReadAllText(existingDst));
+        Assert.Equal("incoming-content", File.ReadAllText(result.Destination));
+    }
+
+    [Fact]
+    public async Task ExtendedFiltersAndGeotaggedQueries_WorkAcrossOrientationSizeUntaggedAndMapBounds()
+    {
+        var sourceDir = Path.Combine(tempDir, "GeoMedia");
+        Directory.CreateDirectory(sourceDir);
+        File.WriteAllBytes(Path.Combine(sourceDir, "paris.jpg"), new byte[12000]);
+        File.WriteAllBytes(Path.Combine(sourceDir, "tokyo.png"), new byte[300]);
+        File.WriteAllBytes(Path.Combine(sourceDir, "notes.bmp"), new byte[500]);
+
+        await catalog.ScanAsync("geo", sourceDir);
+
+        var paris = (await catalog.QueryAsync(new LibraryQuery(Search: "paris"))).Items[0].Media;
+        var tokyo = (await catalog.QueryAsync(new LibraryQuery(Search: "tokyo"))).Items[0].Media;
+        var notes = (await catalog.QueryAsync(new LibraryQuery(Search: "notes"))).Items[0].Media;
+
+        await catalog.SaveMetadataAsync(paris, new MediaMetadata(
+            TakenTicks: new DateTime(2024, 5, 10, 12, 0, 0, DateTimeKind.Utc).Ticks,
+            DateOrigin: "exif", Width: 4000, Height: 3000,
+            Latitude: 48.8566, Longitude: 2.3522, CameraModel: "Canon R6", Iso: 200));
+        await catalog.SaveMetadataAsync(tokyo, new MediaMetadata(
+            TakenTicks: new DateTime(2024, 8, 20, 18, 0, 0, DateTimeKind.Utc).Ticks,
+            DateOrigin: "exif", Width: 1080, Height: 1920,
+            Latitude: 35.6762, Longitude: 139.6503));
+        await catalog.SaveMetadataAsync(notes, new MediaMetadata(Width: 800, Height: 800));
+
+        await catalog.AnnotateAsync(paris, true, "europe, trip");
+        await catalog.AnnotateAsync(notes, false, "temp");
+
+        // Search operators: size:>5kb
+        var big = await catalog.QueryAsync(new LibraryQuery(Search: "size:>5kb"));
+        Assert.Single(big.Items);
+        Assert.Equal("paris.jpg", big.Items[0].Media.RelativePath);
+
+        // Search operators: is:portrait
+        var portrait = await catalog.QueryAsync(new LibraryQuery(Search: "is:portrait"));
+        Assert.Single(portrait.Items);
+        Assert.Equal("tokyo.png", portrait.Items[0].Media.RelativePath);
+
+        // Search operators: is:untagged
+        var untagged = await catalog.QueryAsync(new LibraryQuery(Search: "is:untagged"));
+        Assert.Single(untagged.Items);
+        Assert.Equal("tokyo.png", untagged.Items[0].Media.RelativePath);
+
+        // Search operators: negation -ext:bmp -tag:europe
+        var filtered = await catalog.QueryAsync(new LibraryQuery(Search: "-ext:bmp -tag:europe"));
+        Assert.Single(filtered.Items);
+        Assert.Equal("tokyo.png", filtered.Items[0].Media.RelativePath);
+
+        // Map markers & bounding box filter
+        var markers = await catalog.QueryGeotaggedMarkersAsync(new LibraryQuery());
+        Assert.Equal(2, markers.Count);
+
+        var parisBox = await catalog.QueryAsync(new LibraryQuery(MapBounds: new GeoBounds(48.0, 49.5, 1.5, 3.0)));
+        Assert.Single(parisBox.Items);
+        Assert.Equal("paris.jpg", parisBox.Items[0].Media.RelativePath);
+        Assert.Equal("Canon R6", parisBox.Items[0].Metadata?.CameraModel);
+        Assert.Equal(200, parisBox.Items[0].Metadata?.Iso);
+    }
+
+    [Fact]
+    public async Task SeedDefaultSmartCollections_IsIdempotent()
+    {
+        await catalog.SeedDefaultSmartCollectionsAsync();
+        await catalog.SeedDefaultSmartCollectionsAsync();
+        var seeded = await catalog.SmartCollectionsAsync();
+        Assert.Equal(4, seeded.Count);
+    }
 }

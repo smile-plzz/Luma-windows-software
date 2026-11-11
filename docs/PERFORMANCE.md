@@ -6,11 +6,11 @@ Measurements gathered on Windows 11 with 8 logical cores using `Luma.Benchmarks`
 
 | Records | First 120 + Count | Next Page (Cursor) | Month Breakdown | Locate Middle Anchor | Memory Delta |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1,000 | 24.06 ms | 5.17 ms | 12.05 ms | 9.23 ms | 0.11 MB |
-| 10,000 | 13.04 ms | 3.63 ms | 63.53 ms | 33.66 ms | 0.11 MB |
-| 100,000 | 71.68 ms | 2.66 ms | 1,127.20 ms | 571.16 ms | 0.11 MB |
-| 200,000 | 85.10 ms | 2.63 ms | 874.82 ms | 542.05 ms | 0.11 MB |
-| 500,000 | 203.89 ms | 1.82 ms | 2,376.98 ms | 1,346.09 ms | 0.11 MB |
+| 1,000 | 20.41 ms | 3.57 ms | 11.15 ms | 7.25 ms | 0.14 MB |
+| 10,000 | 7.74 ms | 3.21 ms | 48.47 ms | 45.25 ms | 0.14 MB |
+| 100,000 | 47.86 ms | 1.98 ms | 312.42 ms | 172.95 ms | 0.14 MB |
+| 200,000 | 47.09 ms | 1.36 ms | 642.77 ms | 349.76 ms | 0.14 MB |
+| 500,000 | 118.03 ms | 1.47 ms | 1,455.79 ms | 903.06 ms | 0.14 MB |
 
 [v0.7.0 raw measurements](performance/windows-v0.7.0-benchmarks.json). Single-run synthetic database timings; not physical HDD scan, image decoding, or UI frame rate. Pagination with cursors remains bounded below 3 ms across all library sizes up to 500,000 records. First paint path in v0.7.0 defers month timeline calculation to avoid blocking first 120 card render.
 

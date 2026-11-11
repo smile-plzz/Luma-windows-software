@@ -20,6 +20,9 @@ public sealed class GalleryTests : IDisposable
     [InlineData(MediaSort.Largest,true)] [InlineData(MediaSort.Largest,false)]
     [InlineData(MediaSort.Captured,true)] [InlineData(MediaSort.Captured,false)]
     [InlineData(MediaSort.Type,true)] [InlineData(MediaSort.Type,false)]
+    [InlineData(MediaSort.Filename,true)] [InlineData(MediaSort.Filename,false)]
+    [InlineData(MediaSort.Resolution,true)] [InlineData(MediaSort.Resolution,false)]
+    [InlineData(MediaSort.Duration,true)] [InlineData(MediaSort.Duration,false)]
     public async Task CursorTraversalMatchesWholeQueryWithoutDuplicates(MediaSort sort,bool descending)
     {
         await Seed(265); var query=new LibraryQuery(Sort:sort,Descending:descending,Limit:500);
@@ -32,6 +35,33 @@ public sealed class GalleryTests : IDisposable
             if(page.Items.Count<37)break;
         } while(ids.Count<500);
         Assert.Equal(265,ids.Count); Assert.Equal(expected,ids); Assert.Equal(265,ids.Distinct().Count());
+    }
+
+    [Fact]
+    public async Task CursorTraversalWithFavoritesFirst_MatchesFullOrderWithoutDuplicates()
+    {
+        await Seed(95);
+        var all = (await catalog.QueryAsync(new(Limit: 100))).Items;
+        for (int i = 0; i < all.Count; i += 7)
+            await catalog.AnnotateAsync(all[i].Media, true, "fav");
+
+        var query = new LibraryQuery(Sort: MediaSort.Captured, Descending: true, FavoritesFirst: true, Limit: 200);
+        var expected = (await catalog.QueryAsync(query)).Items;
+        Assert.True(expected[0].Favorite);
+        Assert.False(expected[^1].Favorite);
+
+        var paged = new List<string>();
+        GalleryCursor? cursor = null;
+        do
+        {
+            var page = await catalog.QueryAsync(query with { Limit = 19, Cursor = cursor });
+            paged.AddRange(page.Items.Select(x => x.Id));
+            cursor = page.Next;
+            if (page.Items.Count < 19) break;
+        } while (paged.Count < 200);
+
+        Assert.Equal(expected.Select(x => x.Id), paged);
+        Assert.Equal(95, paged.Distinct().Count());
     }
     [Fact] public async Task AlbumsAndAnnotationsFollowRenameAndMoveAcrossSources()
     {

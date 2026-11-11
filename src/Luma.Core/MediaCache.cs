@@ -174,6 +174,8 @@ public sealed partial class MediaCache(string databasePath, ISourceResolver? sou
         cmd.Transaction = migration;
         cmd.CommandText = BrowseDateSchema;
         await cmd.ExecuteNonQueryAsync(ct);
+        await EnsureExtendedSchemaAsync(db, migration, ct);
+        await EnsureSmartCollectionSchemaAsync(db, migration, ct);
         await migration.CommitAsync(ct);
 
         // Run passive checkpoint after initialization

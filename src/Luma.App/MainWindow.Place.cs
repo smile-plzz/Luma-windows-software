@@ -9,6 +9,51 @@ public sealed partial class MainWindow
     private bool restoringPlace;
     private int loadedStart;
     private readonly DispatcherTimer placeTimer=new() { Interval=TimeSpan.FromSeconds(1) };
+    private readonly Stack<BrowsePlace> navigationHistory = new();
+
+    private void PushNavigationHistory()
+    {
+        if (!ready || restoringPlace) return;
+        var current = new BrowsePlace(SelectedSource, FolderFilter.Text, SearchBox.Text, SelectedAlbum, Navigation.SelectedIndex,
+            selectedMonth, IsMemories ? MemoryDay.ToString("yyyy-MM-dd") : null);
+        if (navigationHistory.Count > 0 && navigationHistory.Peek() == current) return;
+        navigationHistory.Push(current);
+        if (navigationHistory.Count > 25)
+        {
+            var trimmed = navigationHistory.Take(25).Reverse().ToArray();
+            navigationHistory.Clear();
+            foreach (var p in trimmed) navigationHistory.Push(p);
+        }
+        BackHistoryButton.Visibility = navigationHistory.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void NavigateBack(object sender, RoutedEventArgs e) => await DoNavigateBack();
+
+    private async Task DoNavigateBack()
+    {
+        if (navigationHistory.Count == 0) return;
+        var previous = navigationHistory.Pop();
+        BackHistoryButton.Visibility = navigationHistory.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        restoringPlace = true;
+        ready = false;
+        try
+        {
+            var choices = Sources.ItemsSource as IEnumerable<SourceChoice>;
+            if (choices is not null) Sources.SelectedItem = choices.FirstOrDefault(s => s.Id == previous.SourceId) ?? choices.FirstOrDefault();
+            FolderFilter.Text = previous.Folder ?? "";
+            SearchBox.Text = previous.Search ?? "";
+            Navigation.SelectedIndex = Math.Clamp(previous.Navigation, 0, 4);
+            var albums = AlbumsBox.ItemsSource as IEnumerable<Album>;
+            if (albums is not null) AlbumsBox.SelectedItem = albums.FirstOrDefault(a => a.Id == previous.AlbumId);
+            Heading.Text = IsMemories ? "On this day" : (AlbumsBox.SelectedItem as Album)?.Name ?? Navigation.SelectedItem?.ToString() ?? "Library";
+            MemoryDate.Visibility = IsMemories ? Visibility.Visible : Visibility.Collapsed;
+            ClearDateRange();
+            if (settings.SortIndex is 0 or 1 or 4 && DateTime.TryParseExact(previous.Month + "-01", "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var month))
+                SetMonth(month);
+        }
+        finally { restoringPlace = false; ready = true; }
+        await Guard(Refresh);
+    }
     private (MediaCard? Card,double Inset) VisibleAnchor()
     {
         foreach(var card in cards.Where(c=>c.Realized))
@@ -101,6 +146,7 @@ public sealed partial class MainWindow
                 {if(groups.Count==0 || groups[^1].Key!=card.Group)groups.Add(new(card.Group));groups[^1].Add(card);}
             }
             ResumeNavigation.Visibility=loadedStart>0 ? Visibility.Visible : Visibility.Collapsed;
+            if(settings.LayoutMode != "Uniform") RebuildAdaptiveRows();
             if(anchor.Card is not null)await PositionAnchor(anchor.Card,anchor.Inset);
             Notify($"Loaded {page.Items.Count:N0} earlier items. Your position is preserved.");
         }

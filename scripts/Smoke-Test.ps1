@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$Executable)
+param([Parameter(Mandatory=$true)][string]$Executable)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -29,7 +29,7 @@ public class WinInput {
 New-Item -ItemType Directory -Force artifacts/qa | Out-Null
 $exe = (Resolve-Path $Executable).Path
 $version=[System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
-if ($version.ProductName -ne 'Luma' -or $version.FileVersion -ne '0.6.0.0' -or $version.FileDescription -ne 'Luma — Local media gallery') { throw 'Executable branding/version metadata is incorrect.' }
+if ($version.ProductName -ne 'Luma' -or $version.FileVersion -ne '0.7.0.0' -or $version.FileDescription -ne 'Luma — Local media gallery') { throw 'Executable branding/version metadata is incorrect.' }
 if (!(Test-Path (Join-Path (Split-Path $exe) 'Assets/Luma.ico'))) { throw 'Window icon is missing.' }
 $icon=[System.Drawing.Icon]::ExtractAssociatedIcon($exe)
 if (!$icon) { throw 'Executable icon is missing.' }
@@ -533,8 +533,20 @@ try {
     (Wait-Control 'Clean up').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Start-Sleep -Seconds 2
     if ((Get-ChildItem (Join-Path $smokeRoot 'thumbnails') -Filter '*.thumb').Count -ne 0) { throw 'Unused previews survived cleanup after removing their source.' }
+    # Verify new collapsible chrome and offline-by-default Map View.
+    (Wait-Control 'Open map view').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Control 'Online Map Privacy Notice (One-Time Per Session)' | Out-Null
+    (Wait-Control '← Back to gallery').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    (Wait-Control 'Toggle sidebar').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (Find-Control 'Manage sources') { throw 'Sidebar did not collapse.' }
+    (Wait-Control 'Toggle sidebar').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Control 'Manage sources' | Out-Null
+    (Wait-Control 'Toggle gallery controls').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (Find-Control 'Filters') { throw 'Gallery toolbar did not collapse.' }
+    (Wait-Control 'Toggle gallery controls').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Control 'Filters' | Out-Null
     'PASS: source manager, removal cancellation, confirmed removal, refreshed album counts, all-source refresh, repair, rebuild, activity and unused-preview cleanup.' | Set-Content artifacts/qa/management.txt
-    'PASS: native window, 260-item continuous scrolling and image recycling, search, selection, favorites, albums, cached folders, offline preparation and view preference restart work through Windows UI Automation.' | Set-Content artifacts/qa/result.txt
+    'PASS: native window, 260-item continuous scrolling and image recycling, search, selection, favorites, albums, cached folders, offline preparation, collapsible chrome, offline map privacy gate and view preference restart work through Windows UI Automation.' | Set-Content artifacts/qa/result.txt
 } catch {
     if ($window) {
         $window.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { "$($_.Current.AutomationId) | $($_.Current.Name)" } | Set-Content artifacts/qa/failure-controls.txt
