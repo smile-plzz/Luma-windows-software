@@ -744,7 +744,7 @@ public class NewFeaturesTests : IDisposable
         Assert.InRange(parisTx.CenterLon, -96.0, -95.0);
 
         // Heat cells aggregate regional weights & resolve dominant place label
-        var heat = MapOverviewBuilder.BuildHeatCells(markers, cellDegrees: 0.25);
+        var heat = MapOverviewBuilder.BuildHeatCells(markers, cellDegrees: 0.5);
         Assert.Equal(3, heat.Count);
         Assert.Equal(3, heat[0].Count);
         Assert.Equal("Paris", heat[0].TopLocationName);
