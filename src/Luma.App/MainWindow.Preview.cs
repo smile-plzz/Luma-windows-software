@@ -14,6 +14,14 @@ public sealed partial class MainWindow
     private CancellationTokenSource? previewCancellation;
     private MediaCard? previewingCard;
     private bool previewMutatedGallery;
+    private bool returnToMapAfterPreview;
+
+    private void OpenPreviewFromMap(MediaCard card)
+    {
+        returnToMapAfterPreview = true;
+        MapOverlay.Visibility = Visibility.Collapsed;
+        OpenPreviewFor(card);
+    }
 
     private void GallerySpaceKeyDown(object sender, KeyRoutedEventArgs e)
     {
@@ -34,6 +42,7 @@ public sealed partial class MainWindow
         }
         else
         {
+            returnToMapAfterPreview = false;
             var card = PrimarySelectedCard() ?? (cards.Count > 0 ? cards[0] : null);
             if (card is not null)
             {
@@ -187,10 +196,22 @@ public sealed partial class MainWindow
         PreviewImage.Source = null;
         previewingCard = null;
 
-        if (previewMutatedGallery)
+        bool mutated = previewMutatedGallery;
+        if (mutated)
         {
             previewMutatedGallery = false;
             await Guard(Refresh);
+        }
+
+        if (returnToMapAfterPreview)
+        {
+            returnToMapAfterPreview = false;
+            MapOverlay.Visibility = Visibility.Visible;
+            if (mutated)
+                await RefreshMapDataAsync(viewportMode: MapViewportMode.PreserveIfVisible);
+            else if (mapOnlineConsentGranted && mapWebReady && mapWebView?.CoreWebView2 is not null)
+                mapWebView.Focus(FocusState.Programmatic);
+            return;
         }
 
         if (settings.LayoutMode == "Uniform")

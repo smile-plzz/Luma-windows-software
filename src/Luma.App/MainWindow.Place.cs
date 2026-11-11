@@ -76,6 +76,7 @@ public sealed partial class MainWindow
         var (card,inset)=VisibleAnchor();
         settings.Place=new(SelectedSource,FolderFilter.Text,SearchBox.Text,SelectedAlbum,Navigation.SelectedIndex,
             selectedMonth,IsMemories ? MemoryDay.ToString("yyyy-MM-dd") : null,card?.Item.Media.SourceId,card?.Item.Media.RelativePath,inset);
+        SaveMapPreferencesToSettings();
         try {settings.Save();} catch(IOException) { } catch(UnauthorizedAccessException) { }
     }
     private async Task RestorePlace()

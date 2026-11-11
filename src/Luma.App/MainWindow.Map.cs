@@ -18,6 +18,7 @@ using Microsoft.Web.WebView2.Core;
 using Windows.Storage.Streams;
 using Windows.UI;
 
+using Ellipse = Microsoft.UI.Xaml.Shapes.Ellipse;
 using Line = Microsoft.UI.Xaml.Shapes.Line;
 using Polygon = Microsoft.UI.Xaml.Shapes.Polygon;
 using Polyline = Microsoft.UI.Xaml.Shapes.Polyline;
@@ -72,22 +73,27 @@ public sealed class MapStripItem : INotifyPropertyChanged
 
 public sealed partial class MainWindow
 {
+    private enum MapViewportMode { Preserve, PreserveIfVisible, FitAll, RestoreOrFit }
+
     private bool mapOnlineConsentGranted;
+    private bool mapSettingsAppliedOnce;
     private WebView2? mapWebView;
     private bool mapWebReady;
     private IReadOnlyList<GeoMarker> currentMapMarkers = Array.Empty<GeoMarker>();
+    private IReadOnlyList<VisitedPlaceSummary> currentVisitedPlaces = Array.Empty<VisitedPlaceSummary>();
     private (double Lat, double Lon)? pendingMapFocus;
 
     private bool mapFiltersInitializing;
     private string? mapSelectedKind;
-    private string mapViewMode = "clusters";
-    private string mapDrawerTab = "clusters";
+    private string mapViewMode = "heat";
+    private string mapDrawerTab = "places";
     private bool mapPinMode;
     private CachedMedia[] pendingPinMedia = Array.Empty<CachedMedia>();
 
+    // Unified Web Mercator coordinates & zoom level [1.2 .. 18.0] shared 1:1 between Offline Canvas and map.html.
     private double offlineCenterLat = 20.0;
     private double offlineCenterLon = 0.0;
-    private double offlineZoom = 1.6;
+    private double offlineZoom = 2.0;
     private bool offlineDragging;
     private double offlineDragDistance;
     private WinPoint offlineLastPoint;
@@ -95,7 +101,102 @@ public sealed partial class MainWindow
     private CancellationTokenSource? mapBackfillCts;
     private bool mapBackfillRunning;
     private CancellationTokenSource? mapStripThumbCts;
+    private CancellationTokenSource? mapSearchDebounceCts;
     private readonly ObservableCollection<MapStripItem> mapStripItems = new();
+
+    private void SaveMapPreferencesToSettings()
+    {
+        settings.MapViewMode = mapViewMode;
+        settings.MapCenterLat = Math.Clamp(offlineCenterLat, -85.0, 85.0);
+        settings.MapCenterLon = Math.Clamp(offlineCenterLon, -180.0, 180.0);
+        settings.MapZoom = Math.Clamp(offlineZoom, 1.0, 18.0);
+        if (MapDrawerToggle is not null) settings.MapShowLocations = MapDrawerToggle.IsChecked == true;
+        if (MapStripToggle is not null) settings.MapShowFilmstrip = MapStripToggle.IsChecked == true;
+        settings.MapKind = mapSelectedKind;
+        if (MapFavFilter is not null) settings.MapFavoritesOnly = MapFavFilter.IsChecked == true;
+        if (MapMatchGalleryToggle is not null) settings.MapMatchGalleryFilters = MapMatchGalleryToggle.IsChecked == true;
+        if (MapYearFilter?.SelectedItem is MapFilterOption yOpt) settings.MapYear = yOpt.Value;
+        if (MapSourceFilter?.SelectedItem is MapFilterOption sOpt) settings.MapSourceId = sOpt.Value;
+        if (MapOriginFilter is not null) settings.MapOriginIndex = Math.Clamp(MapOriginFilter.SelectedIndex, 0, 2);
+        if (MapSearchBox is not null) settings.MapSearch = MapSearchBox.Text.Trim();
+    }
+
+    private void ApplySavedMapSettingsToUi()
+    {
+        if (mapSettingsAppliedOnce) return;
+        mapSettingsAppliedOnce = true;
+
+        mapFiltersInitializing = true;
+        try
+        {
+            mapViewMode = settings.MapViewMode is ("heat" or "clusters" or "places" or "pins" or "trail")
+                ? settings.MapViewMode
+                : "heat";
+            mapSelectedKind = settings.MapKind;
+
+            if (settings.MapHasSavedViewport)
+            {
+                offlineCenterLat = Math.Clamp(settings.MapCenterLat, -85.0, 85.0);
+                offlineCenterLon = Math.Clamp(settings.MapCenterLon, -180.0, 180.0);
+                offlineZoom = Math.Clamp(settings.MapZoom, 1.2, 18.0);
+            }
+
+            if (MapDrawerToggle is not null) MapDrawerToggle.IsChecked = settings.MapShowLocations;
+            if (MapStripToggle is not null) MapStripToggle.IsChecked = settings.MapShowFilmstrip;
+            if (MapFavFilter is not null) MapFavFilter.IsChecked = settings.MapFavoritesOnly;
+            if (MapMatchGalleryToggle is not null) MapMatchGalleryToggle.IsChecked = settings.MapMatchGalleryFilters;
+            if (MapOriginFilter is not null) MapOriginFilter.SelectedIndex = Math.Clamp(settings.MapOriginIndex, 0, 2);
+            if (MapSearchBox is not null) MapSearchBox.Text = settings.MapSearch ?? "";
+            if (MapKindAll is not null && MapKindPhotos is not null && MapKindVideos is not null)
+            {
+                MapKindAll.IsChecked = mapSelectedKind is null;
+                MapKindPhotos.IsChecked = mapSelectedKind == "photo";
+                MapKindVideos.IsChecked = mapSelectedKind == "video";
+            }
+
+            UpdateViewModeButtons();
+            ApplyMapChromeVisibility();
+        }
+        finally
+        {
+            mapFiltersInitializing = false;
+        }
+    }
+
+    private void UpdateViewModeButtons()
+    {
+        if (MapViewHeatBtn is not null) MapViewHeatBtn.IsChecked = mapViewMode == "heat";
+        if (MapViewClustersBtn is not null) MapViewClustersBtn.IsChecked = mapViewMode == "clusters";
+        if (MapViewPlacesBtn is not null) MapViewPlacesBtn.IsChecked = mapViewMode == "places";
+        if (MapViewPinsBtn is not null) MapViewPinsBtn.IsChecked = mapViewMode == "pins";
+        if (MapViewTrailBtn is not null) MapViewTrailBtn.IsChecked = mapViewMode == "trail";
+        if (OfflineHeatLegend is not null)
+            OfflineHeatLegend.Visibility = mapViewMode == "heat" ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ApplyMapChromeVisibility()
+    {
+        if (MapDrawerPanel is not null && MapDrawerToggle is not null)
+            MapDrawerPanel.Visibility = MapDrawerToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        if (MapFilmstripBar is not null && MapStripToggle is not null)
+            MapFilmstripBar.Visibility = MapStripToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        if (MapConsentCard is not null)
+            MapConsentCard.Visibility = !mapOnlineConsentGranted && !settings.MapConsentNoticeDismissed
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
+
+    private void UpdateMapModeHeaderButton()
+    {
+        if (MapToggleModeButton is null) return;
+        MapToggleModeButton.Visibility = Visibility.Visible;
+        if (MapWebHost.Visibility == Visibility.Visible && mapOnlineConsentGranted)
+            MapToggleModeButton.Content = "Offline canvas";
+        else if (mapOnlineConsentGranted)
+            MapToggleModeButton.Content = "Online map";
+        else
+            MapToggleModeButton.Content = "Load online map (this session)";
+    }
 
     private async void OpenMapView(object sender, RoutedEventArgs e)
     {
@@ -121,6 +222,7 @@ public sealed partial class MainWindow
     {
         if (previewingCard?.Item.Metadata is { Latitude: double lat, Longitude: double lon })
         {
+            returnToMapAfterPreview = false;
             DoClosePreview();
             await Guard(() => OpenMapAsync((lat, lon)));
         }
@@ -149,30 +251,36 @@ public sealed partial class MainWindow
 
     private async Task OpenMapAsync((double Lat, double Lon)? focusCoords)
     {
+        ApplySavedMapSettingsToUi();
         pendingMapFocus = focusCoords;
         MapOverlay.Visibility = Visibility.Visible;
         MapFilmstripList.ItemsSource = mapStripItems;
+        ApplyMapChromeVisibility();
 
         await PopulateMapFilterDropdownsAsync();
-        await RefreshMapDataAsync(fitViewport: !focusCoords.HasValue);
 
         if (focusCoords is { } focus)
         {
-            offlineCenterLat = focus.Lat;
-            offlineCenterLon = focus.Lon;
-            offlineZoom = Math.Max(offlineZoom, 8.0);
-            RenderOfflineCanvas();
+            offlineCenterLat = Math.Clamp(focus.Lat, -85.0, 85.0);
+            offlineCenterLon = Math.Clamp(focus.Lon, -180.0, 180.0);
+            offlineZoom = Math.Max(offlineZoom, 13.0);
+            settings.MapHasSavedViewport = true;
+            await RefreshMapDataAsync(MapViewportMode.Preserve);
+        }
+        else
+        {
+            await RefreshMapDataAsync(MapViewportMode.RestoreOrFit);
         }
 
         if (mapOnlineConsentGranted)
         {
-            await EnsureAndPushOnlineMapAsync();
+            await EnsureAndPushOnlineMapAsync(preserveViewport: true);
         }
         else
         {
             MapOfflinePanel.Visibility = Visibility.Visible;
             MapWebHost.Visibility = Visibility.Collapsed;
-            MapToggleModeButton.Visibility = Visibility.Visible;
+            UpdateMapModeHeaderButton();
         }
 
         _ = StartConnectedMetadataBackfillIfNeededAsync(forceRestart: false);
@@ -183,7 +291,9 @@ public sealed partial class MainWindow
         mapFiltersInitializing = true;
         try
         {
-            var baseScope = (activeQuery ?? CurrentQuery()) with { HasGpsOnly = false, MapBounds = null, Search = "" };
+            var baseScope = MapMatchGalleryToggle.IsChecked == true
+                ? (activeQuery ?? CurrentQuery()) with { HasGpsOnly = false, MapBounds = null, Search = "" }
+                : new LibraryQuery();
             var buckets = await Task.Run(() => catalog.MonthBucketsAsync(baseScope));
             var years = buckets
                 .Select(b => b.Month.Length >= 4 ? b.Month[..4] : "")
@@ -192,7 +302,7 @@ public sealed partial class MainWindow
                 .OrderByDescending(y => y)
                 .ToArray();
 
-            var prevYear = (MapYearFilter.SelectedItem as MapFilterOption)?.Value;
+            var prevYear = (MapYearFilter.SelectedItem as MapFilterOption)?.Value ?? settings.MapYear;
             var yearItems = new List<MapFilterOption> { new("All years", null) };
             yearItems.AddRange(years.Select(y => new MapFilterOption(y, y)));
             MapYearFilter.ItemsSource = yearItems;
@@ -202,7 +312,7 @@ public sealed partial class MainWindow
 
             var sources = await Task.Run(() => catalog.SourcesAsync());
             var labels = await Task.Run(() => catalog.SourceLabelsAsync());
-            var prevSource = (MapSourceFilter.SelectedItem as MapFilterOption)?.Value ?? SelectedSource;
+            var prevSource = (MapSourceFilter.SelectedItem as MapFilterOption)?.Value ?? settings.MapSourceId;
             var sourceItems = new List<MapFilterOption> { new("All sources", null) };
             foreach (var s in sources)
             {
@@ -222,56 +332,97 @@ public sealed partial class MainWindow
         }
     }
 
-    private LibraryQuery BuildMapFilterQuery()
+    private LibraryQuery BuildMapFilterQuery(out int activeFilterCount)
     {
-        var baseQuery = (activeQuery ?? CurrentQuery()) with
+        activeFilterCount = 0;
+        LibraryQuery baseQuery;
+        if (MapMatchGalleryToggle?.IsChecked == true)
         {
-            MapBounds = null,
-            HasGpsOnly = false,
-            FromTicks = null,
-            BeforeTicks = null,
-            MemoriesOn = null,
-            Folder = ""
-        };
+            baseQuery = (activeQuery ?? CurrentQuery()) with
+            {
+                MapBounds = null,
+                HasGpsOnly = false,
+                FromTicks = null,
+                BeforeTicks = null,
+                MemoriesOn = null,
+                Folder = ""
+            };
+            activeFilterCount++;
+        }
+        else
+        {
+            baseQuery = new LibraryQuery();
+        }
 
-        if (mapSelectedKind is not null) baseQuery = baseQuery with { Kind = mapSelectedKind };
-        if (MapFavFilter.IsChecked == true) baseQuery = baseQuery with { FavoritesOnly = true };
+        if (mapSelectedKind is not null)
+        {
+            baseQuery = baseQuery with { Kind = mapSelectedKind };
+            activeFilterCount++;
+        }
+        if (MapFavFilter?.IsChecked == true)
+        {
+            baseQuery = baseQuery with { FavoritesOnly = true };
+            activeFilterCount++;
+        }
 
-        if (MapYearFilter.SelectedItem is MapFilterOption { Value: string yr } && int.TryParse(yr, out var yNum))
+        if (MapYearFilter?.SelectedItem is MapFilterOption { Value: string yr } && int.TryParse(yr, out var yNum))
         {
             var start = new DateTime(yNum, 1, 1, 0, 0, 0, DateTimeKind.Local).ToUniversalTime().Ticks;
             var end = new DateTime(yNum, 12, 31, 23, 59, 59, DateTimeKind.Local).ToUniversalTime().Ticks;
             baseQuery = baseQuery with { FromTicks = start, BeforeTicks = end };
+            activeFilterCount++;
         }
 
-        if (MapSourceFilter.SelectedItem is MapFilterOption { Value: string sid })
+        if (MapSourceFilter?.SelectedItem is MapFilterOption { Value: string sid })
         {
             baseQuery = baseQuery with { SourceId = sid };
+            activeFilterCount++;
         }
 
-        string? originFilter = MapOriginFilter.SelectedIndex switch
+        string? originFilter = MapOriginFilter?.SelectedIndex switch
         {
             1 => "file",
             2 => "manual",
             _ => null
         };
-        if (originFilter is not null) baseQuery = baseQuery with { LocationOriginFilter = originFilter };
+        if (originFilter is not null)
+        {
+            baseQuery = baseQuery with { LocationOriginFilter = originFilter };
+            activeFilterCount++;
+        }
 
-        var mapSearch = MapSearchBox.Text.Trim();
+        var mapSearch = MapSearchBox?.Text.Trim() ?? "";
         if (!string.IsNullOrWhiteSpace(mapSearch))
         {
             baseQuery = baseQuery with
             {
                 Search = string.IsNullOrWhiteSpace(baseQuery.Search) ? mapSearch : $"{baseQuery.Search} {mapSearch}"
             };
+            activeFilterCount++;
         }
 
         return baseQuery;
     }
 
-    private async Task RefreshMapDataAsync(bool fitViewport = true)
+    private void UpdateActiveFilterChip(int activeCount)
     {
-        var query = BuildMapFilterQuery();
+        if (MapActiveFilterChip is null) return;
+        if (activeCount <= 0)
+        {
+            MapActiveFilterChip.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            MapActiveFilterChip.Content = activeCount == 1 ? "1 filter ✕" : $"{activeCount} filters ✕";
+            MapActiveFilterChip.Visibility = Visibility.Visible;
+        }
+    }
+
+    private async Task RefreshMapDataAsync(MapViewportMode viewportMode = MapViewportMode.Preserve)
+    {
+        var query = BuildMapFilterQuery(out int activeFilterCount);
+        UpdateActiveFilterChip(activeFilterCount);
+
         var markersTask = Task.Run(() => catalog.QueryGeotaggedMarkersAsync(query, 25000));
         var summaryTask = Task.Run(() => catalog.QueryMapSummaryAsync(query));
         var placeTask = Task.Run(() => catalog.QueryPlaceTaggedWithoutCoordsAsync(query, 300));
@@ -284,41 +435,63 @@ public sealed partial class MainWindow
         var placeTagged = placeTask.Result;
         var unlocated = unlocatedTask.Result;
 
-        MapSummaryText.Text = summary.PlaceTagOnlyCount > 0
-            ? $"{summary.GeotaggedCount:N0} mapped · {summary.PlaceTagOnlyCount:N0} place-tagged"
-            : $"{summary.GeotaggedCount:N0} mapped";
+        currentVisitedPlaces = await Task.Run(() => MapOverviewBuilder.BuildVisitedPlaces(currentMapMarkers, 120));
 
-        MapTabClusters.Content = $"Clusters ({currentMapMarkers.Count:N0})";
-        MapTabPlaceTags.Content = $"Place tags ({summary.PlaceTagOnlyCount:N0})";
-        MapTabUnlocated.Content = $"Unlocated ({summary.UnlocatedCount:N0})";
-
-        PopulateOfflineGeoClusters(placeTagged, unlocated);
-
-        if (fitViewport) FitOfflineViewport();
-        else RenderOfflineCanvas();
-
-        if (mapOnlineConsentGranted && mapWebReady)
+        if (currentVisitedPlaces.Count > 0)
         {
-            PushMarkersToWebView();
+            MapSummaryText.Text = summary.PlaceTagOnlyCount > 0
+                ? $"{summary.GeotaggedCount:N0} mapped · {currentVisitedPlaces.Count:N0} places · {summary.PlaceTagOnlyCount:N0} tagged"
+                : $"{summary.GeotaggedCount:N0} mapped · {currentVisitedPlaces.Count:N0} {(currentVisitedPlaces.Count == 1 ? "place" : "places")}";
         }
         else
+        {
+            MapSummaryText.Text = summary.PlaceTagOnlyCount > 0
+                ? $"{summary.GeotaggedCount:N0} mapped · {summary.PlaceTagOnlyCount:N0} place-tagged"
+                : $"{summary.GeotaggedCount:N0} mapped";
+        }
+
+        var spotClusters = PopulateOfflineDrawerLists(placeTagged, unlocated);
+        MapTabPlaces.Content = $"Places ({currentVisitedPlaces.Count:N0})";
+        MapTabClusters.Content = $"Spots ({spotClusters.Length:N0})";
+        MapTabPlaceTags.Content = $"Tags ({summary.PlaceTagOnlyCount:N0})";
+        MapTabUnlocated.Content = $"Unlocated ({summary.UnlocatedCount:N0})";
+
+        bool shouldFit = viewportMode switch
+        {
+            MapViewportMode.FitAll => true,
+            MapViewportMode.RestoreOrFit => !settings.MapHasSavedViewport,
+            MapViewportMode.PreserveIfVisible => currentMapMarkers.Count > 0 && !GetMarkersInOfflineViewport().Any(),
+            _ => false
+        };
+
+        if (shouldFit) FitOfflineViewport();
+        else RenderOfflineCanvas();
+
+        if (mapOnlineConsentGranted && mapWebReady && MapWebHost.Visibility == Visibility.Visible)
+        {
+            PushMarkersToWebView(preserveViewport: !shouldFit);
+        }
+        else if (MapStripToggle?.IsChecked == true)
         {
             var visible = GetMarkersInOfflineViewport().Take(24).ToArray();
             _ = RefreshMapFilmstripAsync(visible);
         }
     }
 
-    private void PopulateOfflineGeoClusters(
+    private OfflineGeoCluster[] PopulateOfflineDrawerLists(
         IReadOnlyList<PlaceTaggedItem> placeTagged,
         IReadOnlyList<LibraryItem> unlocated)
     {
+        MapPlacesList.ItemsSource = currentVisitedPlaces;
+
+        OfflineGeoCluster[] clusters;
         if (currentMapMarkers.Count == 0)
         {
-            MapOfflineGroupsList.ItemsSource = Array.Empty<OfflineGeoCluster>();
+            clusters = Array.Empty<OfflineGeoCluster>();
         }
         else
         {
-            var clusters = currentMapMarkers
+            clusters = currentMapMarkers
                 .GroupBy(m => (LatCell: Math.Round(m.Latitude * 50) / 50.0, LonCell: Math.Round(m.Longitude * 50) / 50.0))
                 .OrderByDescending(g => g.Count())
                 .Take(100)
@@ -345,8 +518,8 @@ public sealed partial class MainWindow
                         avgLat, avgLon, minLat, maxLat, minLon, maxLon, items.Length);
                 })
                 .ToArray();
-            MapOfflineGroupsList.ItemsSource = clusters;
         }
+        MapOfflineGroupsList.ItemsSource = clusters;
 
         MapPlaceTagsList.ItemsSource = placeTagged.Select(p => new MapDrawerMediaRow(
             p.Media,
@@ -368,16 +541,20 @@ public sealed partial class MainWindow
         }).ToArray();
 
         UpdateDrawerEmptyState();
+        return clusters;
     }
 
     private void UpdateDrawerEmptyState()
     {
+        if (MapPlacesList is null || MapOfflineGroupsList is null || MapPlaceTagsList is null || MapUnlocatedList is null) return;
+        MapPlacesList.Visibility = mapDrawerTab == "places" ? Visibility.Visible : Visibility.Collapsed;
         MapOfflineGroupsList.Visibility = mapDrawerTab == "clusters" ? Visibility.Visible : Visibility.Collapsed;
         MapPlaceTagsList.Visibility = mapDrawerTab == "placeTags" ? Visibility.Visible : Visibility.Collapsed;
         MapUnlocatedList.Visibility = mapDrawerTab == "unlocated" ? Visibility.Visible : Visibility.Collapsed;
 
         int activeCount = mapDrawerTab switch
         {
+            "places" => currentVisitedPlaces.Count,
             "clusters" => (MapOfflineGroupsList.ItemsSource as Array)?.Length ?? 0,
             "placeTags" => (MapPlaceTagsList.ItemsSource as Array)?.Length ?? 0,
             _ => (MapUnlocatedList.ItemsSource as Array)?.Length ?? 0
@@ -385,7 +562,8 @@ public sealed partial class MainWindow
         MapDrawerEmpty.Visibility = activeCount == 0 ? Visibility.Visible : Visibility.Collapsed;
         MapDrawerEmpty.Text = mapDrawerTab switch
         {
-            "clusters" => "No mapped items match these filters yet. Try Scan GPS or Pin mode to place items on the map.",
+            "places" => "No visited places match these filters yet. Click Scan GPS or Pin mode to place items on the map.",
+            "clusters" => "No coordinate spots match these filters yet.",
             "placeTags" => "No unlocated files with place tags match these filters.",
             _ => "All matching files already have map coordinates."
         };
@@ -441,7 +619,12 @@ public sealed partial class MainWindow
                         DispatcherQueue.TryEnqueue(() =>
                         {
                             if (MapOverlay.Visibility == Visibility.Visible)
-                                _ = RefreshMapDataAsync(fitViewport: currentMapMarkers.Count == 0);
+                            {
+                                var mode = currentMapMarkers.Count == 0 && !settings.MapHasSavedViewport
+                                    ? MapViewportMode.FitAll
+                                    : MapViewportMode.Preserve;
+                                _ = RefreshMapDataAsync(mode);
+                            }
                         });
                     }
                 });
@@ -452,7 +635,10 @@ public sealed partial class MainWindow
 
             if (MapOverlay.Visibility == Visibility.Visible)
             {
-                await RefreshMapDataAsync(fitViewport: currentMapMarkers.Count == 0);
+                var mode = currentMapMarkers.Count == 0 && !settings.MapHasSavedViewport
+                    ? MapViewportMode.FitAll
+                    : MapViewportMode.Preserve;
+                await RefreshMapDataAsync(mode);
             }
             if (totalUpdated > 0)
             {
@@ -475,10 +661,7 @@ public sealed partial class MainWindow
         }
     }
 
-    private void PauseMapBackfill(object sender, RoutedEventArgs e)
-    {
-        mapBackfillCts?.Cancel();
-    }
+    private void PauseMapBackfill(object sender, RoutedEventArgs e) => mapBackfillCts?.Cancel();
 
     private async void TriggerMapBackfill(object sender, RoutedEventArgs e)
     {
@@ -579,7 +762,7 @@ public sealed partial class MainWindow
             mapPinMode = false;
             MapPinModeToggle.IsChecked = false;
             UpdatePinModeVisuals();
-            await RefreshMapDataAsync(fitViewport: false);
+            await RefreshMapDataAsync(MapViewportMode.Preserve);
             if (ready) await Refresh();
             Notify("Catalog location pin cleared.");
             return;
@@ -609,18 +792,38 @@ public sealed partial class MainWindow
         {
             offlineCenterLat = parsedLat.Value;
             offlineCenterLon = parsedLon.Value;
+            settings.MapHasSavedViewport = true;
             pendingMapFocus = (parsedLat.Value, parsedLon.Value);
         }
-        await RefreshMapDataAsync(fitViewport: false);
+        await RefreshMapDataAsync(MapViewportMode.Preserve);
         if (ready) await Refresh();
         Notify($"Saved catalog location for {targets.Length:N0} item(s).");
     }
 
     private void MapChromeToggled(object sender, RoutedEventArgs e)
     {
-        if (MapFilmstripBar is null || MapDrawerPanel is null || MapStripToggle is null || MapDrawerToggle is null) return;
-        MapFilmstripBar.Visibility = MapStripToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-        MapDrawerPanel.Visibility = MapDrawerToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        if (mapFiltersInitializing || MapFilmstripBar is null || MapDrawerPanel is null || MapStripToggle is null || MapDrawerToggle is null) return;
+        ApplyMapChromeVisibility();
+        SaveMapPreferencesToSettings();
+        if (MapStripToggle.IsChecked == true)
+        {
+            if (mapOnlineConsentGranted && mapWebReady && MapWebHost.Visibility == Visibility.Visible)
+                PushMarkersToWebView(preserveViewport: true);
+            else
+                _ = RefreshMapFilmstripAsync(GetMarkersInOfflineViewport().Take(24).ToArray());
+        }
+    }
+
+    private void MapSummaryPillClicked(object sender, RoutedEventArgs e)
+    {
+        if (MapDrawerToggle is null) return;
+        MapDrawerToggle.IsChecked = !(MapDrawerToggle.IsChecked == true);
+        if (MapDrawerToggle.IsChecked == true)
+        {
+            mapDrawerTab = "places";
+            UpdateDrawerTabButtons();
+            UpdateDrawerEmptyState();
+        }
     }
 
     private async void MapKindFilterClicked(object sender, RoutedEventArgs e)
@@ -633,25 +836,39 @@ public sealed partial class MainWindow
         MapKindAll.IsChecked = mapSelectedKind is null;
         MapKindPhotos.IsChecked = mapSelectedKind == "photo";
         MapKindVideos.IsChecked = mapSelectedKind == "video";
-        if (MapOverlay?.Visibility == Visibility.Visible) await RefreshMapDataAsync(fitViewport: true);
+        SaveMapPreferencesToSettings();
+        if (MapOverlay?.Visibility == Visibility.Visible) await RefreshMapDataAsync(MapViewportMode.PreserveIfVisible);
     }
 
     private async void MapFilterChanged(object sender, RoutedEventArgs e)
     {
         if (!ready || mapFiltersInitializing || MapOverlay is null || MapOverlay.Visibility != Visibility.Visible) return;
-        await RefreshMapDataAsync(fitViewport: true);
+        if (ReferenceEquals(sender, MapMatchGalleryToggle))
+            await PopulateMapFilterDropdownsAsync();
+        SaveMapPreferencesToSettings();
+        await RefreshMapDataAsync(MapViewportMode.PreserveIfVisible);
     }
 
     private async void MapComboFilterChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!ready || mapFiltersInitializing || MapOverlay is null || MapOverlay.Visibility != Visibility.Visible) return;
-        await RefreshMapDataAsync(fitViewport: true);
+        SaveMapPreferencesToSettings();
+        await RefreshMapDataAsync(MapViewportMode.PreserveIfVisible);
     }
 
     private async void MapSearchTextChanged(object sender, TextChangedEventArgs e)
     {
         if (!ready || mapFiltersInitializing || MapOverlay is null || MapOverlay.Visibility != Visibility.Visible) return;
-        await RefreshMapDataAsync(fitViewport: false);
+        mapSearchDebounceCts?.Cancel();
+        mapSearchDebounceCts?.Dispose();
+        var cts = mapSearchDebounceCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(180, cts.Token);
+            SaveMapPreferencesToSettings();
+            await RefreshMapDataAsync(MapViewportMode.PreserveIfVisible);
+        }
+        catch (OperationCanceledException) { }
     }
 
     private async void MapResetFiltersClicked(object sender, RoutedEventArgs e)
@@ -660,32 +877,36 @@ public sealed partial class MainWindow
         try
         {
             mapSelectedKind = null;
-            MapKindAll.IsChecked = true;
-            MapKindPhotos.IsChecked = false;
-            MapKindVideos.IsChecked = false;
-            MapFavFilter.IsChecked = false;
-            MapYearFilter.SelectedIndex = 0;
-            MapSourceFilter.SelectedIndex = 0;
-            MapOriginFilter.SelectedIndex = 0;
-            MapSearchBox.Text = "";
+            if (MapKindAll is not null) MapKindAll.IsChecked = true;
+            if (MapKindPhotos is not null) MapKindPhotos.IsChecked = false;
+            if (MapKindVideos is not null) MapKindVideos.IsChecked = false;
+            if (MapFavFilter is not null) MapFavFilter.IsChecked = false;
+            if (MapMatchGalleryToggle is not null) MapMatchGalleryToggle.IsChecked = false;
+            if (MapYearFilter is not null) MapYearFilter.SelectedIndex = 0;
+            if (MapSourceFilter is not null) MapSourceFilter.SelectedIndex = 0;
+            if (MapOriginFilter is not null) MapOriginFilter.SelectedIndex = 0;
+            if (MapSearchBox is not null) MapSearchBox.Text = "";
         }
         finally
         {
             mapFiltersInitializing = false;
         }
-        await RefreshMapDataAsync(fitViewport: true);
+        await PopulateMapFilterDropdownsAsync();
+        SaveMapPreferencesToSettings();
+        await RefreshMapDataAsync(MapViewportMode.FitAll);
     }
 
     private void MapViewModeClicked(object sender, RoutedEventArgs e)
     {
-        if (MapViewClustersBtn is null || MapViewPinsBtn is null || MapViewTrailBtn is null) return;
-        if (ReferenceEquals(sender, MapViewClustersBtn)) mapViewMode = "clusters";
+        if (MapViewHeatBtn is null || MapViewClustersBtn is null || MapViewPlacesBtn is null || MapViewPinsBtn is null || MapViewTrailBtn is null) return;
+        if (ReferenceEquals(sender, MapViewHeatBtn)) mapViewMode = "heat";
+        else if (ReferenceEquals(sender, MapViewClustersBtn)) mapViewMode = "clusters";
+        else if (ReferenceEquals(sender, MapViewPlacesBtn)) mapViewMode = "places";
         else if (ReferenceEquals(sender, MapViewPinsBtn)) mapViewMode = "pins";
         else if (ReferenceEquals(sender, MapViewTrailBtn)) mapViewMode = "trail";
 
-        MapViewClustersBtn.IsChecked = mapViewMode == "clusters";
-        MapViewPinsBtn.IsChecked = mapViewMode == "pins";
-        MapViewTrailBtn.IsChecked = mapViewMode == "trail";
+        UpdateViewModeButtons();
+        SaveMapPreferencesToSettings();
 
         RenderOfflineCanvas();
         if (mapWebReady && mapWebView?.CoreWebView2 is not null)
@@ -694,25 +915,66 @@ public sealed partial class MainWindow
         }
     }
 
+    private void UpdateDrawerTabButtons()
+    {
+        if (MapTabPlaces is not null) MapTabPlaces.IsChecked = mapDrawerTab == "places";
+        if (MapTabClusters is not null) MapTabClusters.IsChecked = mapDrawerTab == "clusters";
+        if (MapTabPlaceTags is not null) MapTabPlaceTags.IsChecked = mapDrawerTab == "placeTags";
+        if (MapTabUnlocated is not null) MapTabUnlocated.IsChecked = mapDrawerTab == "unlocated";
+    }
+
     private void MapDrawerTabClicked(object sender, RoutedEventArgs e)
     {
-        if (MapTabClusters is null || MapTabPlaceTags is null || MapTabUnlocated is null) return;
-        if (ReferenceEquals(sender, MapTabClusters)) mapDrawerTab = "clusters";
+        if (MapTabPlaces is null || MapTabClusters is null || MapTabPlaceTags is null || MapTabUnlocated is null) return;
+        if (ReferenceEquals(sender, MapTabPlaces)) mapDrawerTab = "places";
+        else if (ReferenceEquals(sender, MapTabClusters)) mapDrawerTab = "clusters";
         else if (ReferenceEquals(sender, MapTabPlaceTags)) mapDrawerTab = "placeTags";
         else if (ReferenceEquals(sender, MapTabUnlocated)) mapDrawerTab = "unlocated";
 
-        MapTabClusters.IsChecked = mapDrawerTab == "clusters";
-        MapTabPlaceTags.IsChecked = mapDrawerTab == "placeTags";
-        MapTabUnlocated.IsChecked = mapDrawerTab == "unlocated";
+        UpdateDrawerTabButtons();
         UpdateDrawerEmptyState();
     }
 
     private void DismissMapConsentBanner(object sender, RoutedEventArgs e)
     {
+        settings.MapConsentNoticeDismissed = true;
         MapConsentCard.Visibility = Visibility.Collapsed;
+        try { settings.Save(); } catch { }
     }
 
-    // ---- Offline Interactive Canvas Rendering & Interaction ----
+    // ---- Offline Interactive Canvas Rendering & Unified Mercator Projection ----
+
+    private void PersistOfflineViewport()
+    {
+        settings.MapHasSavedViewport = true;
+        settings.MapCenterLat = Math.Clamp(offlineCenterLat, -85.0, 85.0);
+        settings.MapCenterLon = Math.Clamp(offlineCenterLon, -180.0, 180.0);
+        settings.MapZoom = Math.Clamp(offlineZoom, 1.0, 18.0);
+    }
+
+    private void FocusOfflineBounds(double minLat, double maxLat, double minLon, double maxLon)
+    {
+        offlineCenterLat = Math.Clamp((minLat + maxLat) / 2.0, -85.0, 85.0);
+        offlineCenterLon = Math.Clamp((minLon + maxLon) / 2.0, -180.0, 180.0);
+        var span = Math.Max(0.01, Math.Max(maxLat - minLat, maxLon - minLon));
+        offlineZoom = span > 120 ? 1.8
+            : span > 45 ? 3.0
+            : span > 15 ? 4.8
+            : span > 4 ? 7.0
+            : span > 0.8 ? 10.5
+            : span > 0.15 ? 12.2
+            : 13.5;
+        PersistOfflineViewport();
+        RenderOfflineCanvas();
+        if (mapWebReady && mapWebView?.CoreWebView2 is not null && MapWebHost.Visibility == Visibility.Visible)
+        {
+            mapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+            {
+                type = "fitBounds",
+                minLat, maxLat, minLon, maxLon
+            }));
+        }
+    }
 
     private void FitOfflineViewport()
     {
@@ -720,30 +982,25 @@ public sealed partial class MainWindow
         {
             offlineCenterLat = 20.0;
             offlineCenterLon = 0.0;
-            offlineZoom = 1.6;
+            offlineZoom = 2.0;
+            RenderOfflineCanvas();
+            return;
         }
-        else
+
+        double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+        foreach (var m in currentMapMarkers)
         {
-            var minLat = currentMapMarkers.Min(m => m.Latitude);
-            var maxLat = currentMapMarkers.Max(m => m.Latitude);
-            var minLon = currentMapMarkers.Min(m => m.Longitude);
-            var maxLon = currentMapMarkers.Max(m => m.Longitude);
-            offlineCenterLat = (minLat + maxLat) / 2.0;
-            offlineCenterLon = (minLon + maxLon) / 2.0;
-            var span = Math.Max(0.05, Math.Max(maxLat - minLat, maxLon - minLon));
-            offlineZoom = span > 120 ? 1.5
-                : span > 45 ? 2.5
-                : span > 15 ? 4.0
-                : span > 4 ? 6.5
-                : span > 0.8 ? 10.0
-                : 13.0;
+            if (m.Latitude < minLat) minLat = m.Latitude;
+            if (m.Latitude > maxLat) maxLat = m.Latitude;
+            if (m.Longitude < minLon) minLon = m.Longitude;
+            if (m.Longitude > maxLon) maxLon = m.Longitude;
         }
-        RenderOfflineCanvas();
+        FocusOfflineBounds(minLat, maxLat, minLon, maxLon);
     }
 
     private (double Scale, double OriginX, double OriginY) GetOfflineProjection(double w, double h)
     {
-        var worldSize = 256.0 * offlineZoom;
+        var worldSize = 256.0 * Math.Pow(2.0, Math.Clamp(offlineZoom, 1.0, 18.0));
         var cx = OfflineWorldMap.LonToNormX(offlineCenterLon) * worldSize;
         var cy = OfflineWorldMap.LatToNormY(offlineCenterLat) * worldSize;
         return (worldSize, cx - w / 2.0, cy - h / 2.0);
@@ -776,16 +1033,15 @@ public sealed partial class MainWindow
 
         OfflineMapCanvas.Children.Clear();
         var isLight = Root.ActualTheme == ElementTheme.Light;
-        var gridColor = isLight ? Color.FromArgb(24, 0, 0, 0) : Color.FromArgb(26, 255, 255, 255);
-        var landFill = isLight ? Color.FromArgb(46, 80, 90, 100) : Color.FromArgb(40, 210, 220, 235);
-        var landStroke = isLight ? Color.FromArgb(90, 70, 80, 90) : Color.FromArgb(75, 200, 210, 225);
+        var gridColor = isLight ? Color.FromArgb(20, 0, 0, 0) : Color.FromArgb(22, 255, 255, 255);
+        var landFill = isLight ? Color.FromArgb(42, 85, 95, 110) : Color.FromArgb(36, 200, 212, 232);
+        var landStroke = isLight ? Color.FromArgb(85, 70, 80, 95) : Color.FromArgb(68, 195, 210, 230);
         var gridBrush = new SolidColorBrush(gridColor);
         var landFillBrush = new SolidColorBrush(landFill);
         var landStrokeBrush = new SolidColorBrush(landStroke);
 
         var (scale, ox, oy) = GetOfflineProjection(w, h);
 
-        // Subtle graticule lines
         for (int lat = -60; lat <= 60; lat += 30)
         {
             var py = OfflineWorldMap.LatToNormY(lat) * scale - oy;
@@ -799,7 +1055,6 @@ public sealed partial class MainWindow
             OfflineMapCanvas.Children.Add(new Line { X1 = px, Y1 = 0, X2 = px, Y2 = h, Stroke = gridBrush, StrokeThickness = 1 });
         }
 
-        // Vector landmasses
         foreach (var polyPts in OfflineWorldMap.Landmasses)
         {
             var poly = new Polygon
@@ -817,35 +1072,268 @@ public sealed partial class MainWindow
             OfflineMapCanvas.Children.Add(poly);
         }
 
-        // Timeline trail
         if (mapViewMode == "trail" && currentMapMarkers.Count > 1)
         {
+            var ordered = currentMapMarkers.OrderBy(x => x.DateTicks).ToArray();
+            var glowTrail = new Polyline
+            {
+                Stroke = new SolidColorBrush(Color.FromArgb(72, 59, 130, 246)),
+                StrokeThickness = 6
+            };
             var trail = new Polyline
             {
-                Stroke = new SolidColorBrush(Color.FromArgb(175, 59, 130, 246)),
-                StrokeThickness = 2,
+                Stroke = new SolidColorBrush(Color.FromArgb(220, 59, 130, 246)),
+                StrokeThickness = 2.2,
                 StrokeDashArray = [5, 4]
             };
-            foreach (var m in currentMapMarkers.OrderBy(x => x.DateTicks))
+            foreach (var m in ordered)
             {
                 var px = OfflineWorldMap.LonToNormX(m.Longitude) * scale - ox;
                 var py = OfflineWorldMap.LatToNormY(m.Latitude) * scale - oy;
-                trail.Points.Add(new WinPoint(px, py));
+                var wp = new WinPoint(px, py);
+                glowTrail.Points.Add(wp);
+                trail.Points.Add(wp);
             }
+            OfflineMapCanvas.Children.Add(glowTrail);
             OfflineMapCanvas.Children.Add(trail);
         }
 
-        // Spatial clustering for markers
-        double cellPx = mapViewMode == "pins" ? 10 : (mapViewMode == "trail" ? 14 : 38);
-        var cells = new Dictionary<(int gx, int gy), List<GeoMarker>>();
         var visible = new List<GeoMarker>();
-
         foreach (var m in currentMapMarkers)
         {
             var px = OfflineWorldMap.LonToNormX(m.Longitude) * scale - ox;
             var py = OfflineWorldMap.LatToNormY(m.Latitude) * scale - oy;
-            if (px < -30 || px > w + 30 || py < -30 || py > h + 30) continue;
+            if (px < -40 || px > w + 40 || py < -40 || py > h + 40) continue;
             visible.Add(m);
+        }
+
+        if (mapViewMode == "heat")
+        {
+            RenderOfflineHeatLayer(visible, scale, ox, oy);
+        }
+        else if (mapViewMode == "places")
+        {
+            RenderOfflinePlacesLayer(w, h, scale, ox, oy);
+        }
+        else
+        {
+            RenderOfflineMarkerLayer(visible, scale, ox, oy);
+        }
+
+        if (OfflineMapModeBadge is not null)
+        {
+            OfflineMapModeBadge.Text = currentVisitedPlaces.Count > 0
+                ? $"Offline · {visible.Count:N0} in view · {currentVisitedPlaces.Count:N0} places"
+                : $"Offline · {visible.Count:N0} in view";
+        }
+
+        if (MapStripToggle?.IsChecked == true)
+            _ = RefreshMapFilmstripAsync(visible.Take(24).ToArray());
+    }
+
+    private void RenderOfflineHeatLayer(List<GeoMarker> visible, double scale, double ox, double oy)
+    {
+        if (visible.Count == 0) return;
+
+        double cellDeg = Math.Clamp(10.0 / Math.Pow(2.0, offlineZoom), 0.008, 4.0);
+        var heatCells = MapOverviewBuilder.BuildHeatCells(visible, cellDeg);
+        double maxWeight = Math.Max(1.0, heatCells.Max(c => c.Weight));
+
+        // 1. Concentric translucent thermal glow circles
+        foreach (var cell in heatCells.Take(300))
+        {
+            var px = OfflineWorldMap.LonToNormX(cell.CenterLon) * scale - ox;
+            var py = OfflineWorldMap.LatToNormY(cell.CenterLat) * scale - oy;
+            var ratio = Math.Clamp(cell.Weight / maxWeight, 0.15, 1.0);
+            var radius = 20.0 + ratio * 34.0;
+
+            Color core = ratio > 0.78 ? Color.FromArgb(185, 239, 68, 68)
+                : ratio > 0.52 ? Color.FromArgb(170, 245, 158, 11)
+                : ratio > 0.30 ? Color.FromArgb(155, 16, 185, 129)
+                : Color.FromArgb(140, 56, 189, 248);
+            Color mid = ratio > 0.52 ? Color.FromArgb(85, 245, 158, 11) : Color.FromArgb(75, 56, 189, 248);
+
+            var grad = new RadialGradientBrush
+            {
+                Center = new WinPoint(0.5, 0.5),
+                GradientOrigin = new WinPoint(0.5, 0.5),
+                RadiusX = 0.5,
+                RadiusY = 0.5
+            };
+            grad.GradientStops.Add(new GradientStop { Color = core, Offset = 0.0 });
+            grad.GradientStops.Add(new GradientStop { Color = mid, Offset = 0.45 });
+            grad.GradientStops.Add(new GradientStop { Color = Color.FromArgb(0, mid.R, mid.G, mid.B), Offset = 1.0 });
+
+            var glow = new Ellipse
+            {
+                Width = radius * 2.0,
+                Height = radius * 2.0,
+                Fill = grad,
+                IsHitTestVisible = false
+            };
+            Canvas.SetLeft(glow, px - radius);
+            Canvas.SetTop(glow, py - radius);
+            OfflineMapCanvas.Children.Add(glow);
+        }
+
+        // 2. Crisp clickable core hotspots & top place pills
+        var badgeBg = new SolidColorBrush(Color.FromArgb(208, 22, 24, 30));
+        var badgeBorder = new SolidColorBrush(Color.FromArgb(110, 255, 255, 255));
+        var whiteBrush = new SolidColorBrush(Colors.White);
+        var coreBrush = new SolidColorBrush(Color.FromArgb(240, 245, 158, 11));
+
+        foreach (var cell in heatCells.Take(120))
+        {
+            var px = OfflineWorldMap.LonToNormX(cell.CenterLon) * scale - ox;
+            var py = OfflineWorldMap.LatToNormY(cell.CenterLat) * scale - oy;
+
+            FrameworkElement hotspot;
+            if (cell.Count >= 3)
+            {
+                var text = !string.IsNullOrWhiteSpace(cell.TopLocationName) && offlineZoom >= 5.0
+                    ? $"{cell.TopLocationName.Split(',')[0]} · {cell.Count:N0}"
+                    : cell.Count.ToString(CultureInfo.InvariantCulture);
+                hotspot = new Border
+                {
+                    Background = badgeBg,
+                    BorderBrush = badgeBorder,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(999),
+                    Padding = new Thickness(7, 2, 7, 2),
+                    Child = new TextBlock { Text = text, Foreground = whiteBrush, FontSize = 11, FontWeight = FontWeights.SemiBold }
+                };
+            }
+            else
+            {
+                hotspot = new Border
+                {
+                    Width = 10,
+                    Height = 10,
+                    CornerRadius = new CornerRadius(5),
+                    Background = whiteBrush,
+                    BorderBrush = coreBrush,
+                    BorderThickness = new Thickness(2)
+                };
+            }
+
+            ToolTipService.SetToolTip(hotspot, string.IsNullOrWhiteSpace(cell.TopLocationName)
+                ? $"{cell.Count:N0} item(s) around {cell.CenterLat:0.00}, {cell.CenterLon:0.00}"
+                : $"{cell.TopLocationName} · {cell.Count:N0} item(s)");
+
+            hotspot.Tapped += async (_, args) =>
+            {
+                if (mapPinMode) return;
+                args.Handled = true;
+                if (cell.Count > 1 && offlineZoom < 12.0)
+                {
+                    offlineCenterLat = cell.CenterLat;
+                    offlineCenterLon = cell.CenterLon;
+                    offlineZoom = Math.Min(16.0, offlineZoom + 2.2);
+                    PersistOfflineViewport();
+                    RenderOfflineCanvas();
+                }
+                else
+                {
+                    var item = await Task.Run(() => catalog.GetItemAsync(cell.SampleMarker.SourceId, cell.SampleMarker.RelativePath));
+                    if (item is not null) OpenPreviewFromMap(new MediaCard(item, settings));
+                }
+            };
+
+            hotspot.Measure(new global::Windows.Foundation.Size(200, 40));
+            Canvas.SetLeft(hotspot, px - hotspot.DesiredSize.Width / 2.0);
+            Canvas.SetTop(hotspot, py - hotspot.DesiredSize.Height / 2.0);
+            OfflineMapCanvas.Children.Add(hotspot);
+        }
+    }
+
+    private void RenderOfflinePlacesLayer(double w, double h, double scale, double ox, double oy)
+    {
+        var isLight = Root.ActualTheme == ElementTheme.Light;
+        var pillBg = new SolidColorBrush(isLight ? Color.FromArgb(236, 250, 249, 246) : Color.FromArgb(230, 24, 25, 30));
+        var pillFg = new SolidColorBrush(isLight ? Color.FromArgb(255, 24, 24, 27) : Color.FromArgb(255, 244, 244, 245));
+        var borderNormal = new SolidColorBrush(isLight ? Color.FromArgb(45, 0, 0, 0) : Color.FromArgb(60, 255, 255, 255));
+        var borderFav = new SolidColorBrush(Color.FromArgb(180, 224, 145, 36));
+        var countBlue = new SolidColorBrush(Color.FromArgb(255, 59, 130, 246));
+        var countGold = new SolidColorBrush(Color.FromArgb(255, 224, 145, 36));
+        var whiteBrush = new SolidColorBrush(Colors.White);
+
+        var placed = new List<(double X, double Y, double W)>();
+        foreach (var place in currentVisitedPlaces)
+        {
+            var px = OfflineWorldMap.LonToNormX(place.CenterLon) * scale - ox;
+            var py = OfflineWorldMap.LatToNormY(place.CenterLat) * scale - oy;
+            if (px < -100 || px > w + 100 || py < -30 || py > h + 30) continue;
+
+            var estW = Math.Min(210.0, 58.0 + place.Title.Length * 6.5);
+            if (placed.Any(b => Math.Abs(px - b.X) < (estW + b.W) * 0.48 && Math.Abs(py - b.Y) < 28.0))
+                continue;
+            placed.Add((px, py, estW));
+
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            row.Children.Add(new TextBlock
+            {
+                Text = place.Title,
+                Foreground = pillFg,
+                FontSize = 11.5,
+                FontWeight = FontWeights.SemiBold,
+                MaxWidth = 148,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            row.Children.Add(new Border
+            {
+                Background = place.FavoriteCount > 0 ? countGold : countBlue,
+                CornerRadius = new CornerRadius(999),
+                Padding = new Thickness(6, 1, 6, 1),
+                Child = new TextBlock
+                {
+                    Text = place.Count > 999 ? $"{Math.Round(place.Count / 1000.0)}k" : place.Count.ToString(),
+                    Foreground = whiteBrush,
+                    FontSize = 10.5,
+                    FontWeight = FontWeights.Bold
+                }
+            });
+
+            var pill = new Border
+            {
+                Background = pillBg,
+                BorderBrush = place.FavoriteCount > 0 ? borderFav : borderNormal,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(999),
+                Padding = new Thickness(10, 4, 8, 4),
+                Child = row
+            };
+            ToolTipService.SetToolTip(pill, $"{place.Title}\n{place.Subtitle}");
+            pill.Tapped += async (_, args) =>
+            {
+                if (mapPinMode) return;
+                args.Handled = true;
+                if (offlineZoom < 10.5)
+                {
+                    FocusOfflineBounds(place.MinLat, place.MaxLat, place.MinLon, place.MaxLon);
+                }
+                else
+                {
+                    var item = await Task.Run(() => catalog.GetItemAsync(place.Representative.SourceId, place.Representative.RelativePath));
+                    if (item is not null) OpenPreviewFromMap(new MediaCard(item, settings));
+                }
+            };
+
+            pill.Measure(new global::Windows.Foundation.Size(240, 40));
+            Canvas.SetLeft(pill, px - pill.DesiredSize.Width / 2.0);
+            Canvas.SetTop(pill, py - pill.DesiredSize.Height / 2.0);
+            OfflineMapCanvas.Children.Add(pill);
+        }
+    }
+
+    private void RenderOfflineMarkerLayer(List<GeoMarker> visible, double scale, double ox, double oy)
+    {
+        double cellPx = mapViewMode == "pins" ? 10 : (mapViewMode == "trail" ? 14 : 38);
+        var cells = new Dictionary<(int gx, int gy), List<GeoMarker>>();
+        foreach (var m in visible)
+        {
+            var px = OfflineWorldMap.LonToNormX(m.Longitude) * scale - ox;
+            var py = OfflineWorldMap.LatToNormY(m.Latitude) * scale - oy;
             var cell = ((int)Math.Floor(px / cellPx), (int)Math.Floor(py / cellPx));
             if (!cells.TryGetValue(cell, out var list)) cells[cell] = list = new List<GeoMarker>();
             list.Add(m);
@@ -882,11 +1370,7 @@ public sealed partial class MainWindow
                     if (mapPinMode) return;
                     args.Handled = true;
                     var item = await Task.Run(() => catalog.GetItemAsync(m.SourceId, m.RelativePath));
-                    if (item is not null)
-                    {
-                        MapOverlay.Visibility = Visibility.Collapsed;
-                        OpenPreviewFor(new MediaCard(item, settings));
-                    }
+                    if (item is not null) OpenPreviewFromMap(new MediaCard(item, settings));
                 };
                 Canvas.SetLeft(dot, px - 7);
                 Canvas.SetTop(dot, py - 7);
@@ -921,7 +1405,8 @@ public sealed partial class MainWindow
                     args.Handled = true;
                     offlineCenterLat = avgLat;
                     offlineCenterLon = avgLon;
-                    offlineZoom = Math.Min(32.0, offlineZoom * 2.2);
+                    offlineZoom = Math.Min(16.0, offlineZoom + 2.0);
+                    PersistOfflineViewport();
                     RenderOfflineCanvas();
                 };
                 Canvas.SetLeft(pill, px - size / 2.0);
@@ -929,8 +1414,6 @@ public sealed partial class MainWindow
                 OfflineMapCanvas.Children.Add(pill);
             }
         }
-
-        _ = RefreshMapFilmstripAsync(visible.Take(24).ToArray());
     }
 
     private void OfflineCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => RenderOfflineCanvas();
@@ -953,7 +1436,7 @@ public sealed partial class MainWindow
         offlineDragDistance += Math.Abs(dx) + Math.Abs(dy);
         offlineLastPoint = pt;
 
-        var worldSize = 256.0 * offlineZoom;
+        var worldSize = 256.0 * Math.Pow(2.0, Math.Clamp(offlineZoom, 1.0, 18.0));
         var nx = Math.Clamp(OfflineWorldMap.LonToNormX(offlineCenterLon) - (dx / worldSize), 0.0, 1.0);
         var ny = Math.Clamp(OfflineWorldMap.LatToNormY(offlineCenterLat) - (dy / worldSize), 0.02, 0.98);
         offlineCenterLon = OfflineWorldMap.NormXToLon(nx);
@@ -966,6 +1449,7 @@ public sealed partial class MainWindow
         if (!offlineDragging) return;
         offlineDragging = false;
         OfflineMapCanvas.ReleasePointerCapture(e.Pointer);
+        PersistOfflineViewport();
 
         if (mapPinMode && offlineDragDistance < 6)
         {
@@ -979,20 +1463,39 @@ public sealed partial class MainWindow
 
     private void OfflineCanvas_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
-        var delta = e.GetCurrentPoint(OfflineMapCanvas).Properties.MouseWheelDelta;
-        offlineZoom = Math.Clamp(delta > 0 ? offlineZoom * 1.28 : offlineZoom / 1.28, 1.0, 64.0);
+        var props = e.GetCurrentPoint(OfflineMapCanvas);
+        var delta = props.Properties.MouseWheelDelta;
+        var w = Math.Max(320, OfflineMapCanvas.ActualWidth);
+        var h = Math.Max(200, OfflineMapCanvas.ActualHeight);
+        var pt = props.Position;
+
+        var (oldScale, oldOx, oldOy) = GetOfflineProjection(w, h);
+        var focusLon = OfflineWorldMap.NormXToLon((oldOx + pt.X) / oldScale);
+        var focusLat = OfflineWorldMap.NormYToLat((oldOy + pt.Y) / oldScale);
+
+        offlineZoom = Math.Clamp(delta > 0 ? offlineZoom + 0.65 : offlineZoom - 0.65, 1.2, 18.0);
+        var newScale = 256.0 * Math.Pow(2.0, offlineZoom);
+        var newFocusX = OfflineWorldMap.LonToNormX(focusLon) * newScale;
+        var newFocusY = OfflineWorldMap.LatToNormY(focusLat) * newScale;
+        var newCx = newFocusX - (pt.X - w / 2.0);
+        var newCy = newFocusY - (pt.Y - h / 2.0);
+        offlineCenterLon = OfflineWorldMap.NormXToLon(newCx / newScale);
+        offlineCenterLat = OfflineWorldMap.NormYToLat(newCy / newScale);
+        PersistOfflineViewport();
         RenderOfflineCanvas();
     }
 
     private void OfflineZoomInClicked(object sender, RoutedEventArgs e)
     {
-        offlineZoom = Math.Clamp(offlineZoom * 1.6, 1.0, 64.0);
+        offlineZoom = Math.Clamp(offlineZoom + 1.0, 1.2, 18.0);
+        PersistOfflineViewport();
         RenderOfflineCanvas();
     }
 
     private void OfflineZoomOutClicked(object sender, RoutedEventArgs e)
     {
-        offlineZoom = Math.Clamp(offlineZoom / 1.6, 1.0, 64.0);
+        offlineZoom = Math.Clamp(offlineZoom - 1.0, 1.2, 18.0);
+        PersistOfflineViewport();
         RenderOfflineCanvas();
     }
 
@@ -1001,6 +1504,8 @@ public sealed partial class MainWindow
     private async void OfflineFilterBoundsClicked(object sender, RoutedEventArgs e)
     {
         activeMapBounds = GetOfflineViewportBounds();
+        PersistOfflineViewport();
+        SaveMapPreferencesToSettings();
         MapOverlay.Visibility = Visibility.Collapsed;
         await Guard(Refresh);
     }
@@ -1009,7 +1514,7 @@ public sealed partial class MainWindow
 
     private async Task RefreshMapFilmstripAsync(IReadOnlyList<GeoMarker> visible)
     {
-        if (MapStripToggle.IsChecked != true) return;
+        if (MapStripToggle?.IsChecked != true) return;
         mapStripThumbCts?.Cancel();
         mapStripThumbCts?.Dispose();
         mapStripThumbCts = new CancellationTokenSource();
@@ -1065,28 +1570,40 @@ public sealed partial class MainWindow
         if (e.ClickedItem is not MapStripItem card) return;
         var m = card.Marker;
         var item = await Task.Run(() => catalog.GetItemAsync(m.SourceId, m.RelativePath));
-        if (item is not null)
-        {
-            MapOverlay.Visibility = Visibility.Collapsed;
-            OpenPreviewFor(new MediaCard(item, settings));
-        }
+        if (item is not null) OpenPreviewFromMap(new MediaCard(item, settings));
     }
 
     // ---- Online WebView2 Map ----
 
+    private async void ToggleMapModeClicked(object sender, RoutedEventArgs e)
+    {
+        if (!mapOnlineConsentGranted || MapWebHost.Visibility != Visibility.Visible)
+        {
+            mapOnlineConsentGranted = true;
+            await EnsureAndPushOnlineMapAsync(preserveViewport: true);
+        }
+        else
+        {
+            MapWebHost.Visibility = Visibility.Collapsed;
+            MapOfflinePanel.Visibility = Visibility.Visible;
+            UpdateMapModeHeaderButton();
+            RenderOfflineCanvas();
+        }
+    }
+
     private async void GrantMapOnlineConsent(object sender, RoutedEventArgs e)
     {
         mapOnlineConsentGranted = true;
-        await EnsureAndPushOnlineMapAsync();
+        await EnsureAndPushOnlineMapAsync(preserveViewport: true);
     }
 
-    private async Task EnsureAndPushOnlineMapAsync()
+    private async Task EnsureAndPushOnlineMapAsync(bool preserveViewport = true)
     {
         try
         {
             MapOfflinePanel.Visibility = Visibility.Collapsed;
             MapWebHost.Visibility = Visibility.Visible;
-            MapToggleModeButton.Visibility = Visibility.Collapsed;
+            UpdateMapModeHeaderButton();
 
             if (mapWebView is null)
             {
@@ -1119,26 +1636,59 @@ public sealed partial class MainWindow
                 mapWebReady = true;
             }
 
-            PushMarkersToWebView();
+            PushMarkersToWebView(preserveViewport: preserveViewport);
         }
         catch (Exception ex)
         {
             mapOnlineConsentGranted = false;
             MapWebHost.Visibility = Visibility.Collapsed;
             MapOfflinePanel.Visibility = Visibility.Visible;
-            MapToggleModeButton.Visibility = Visibility.Visible;
+            UpdateMapModeHeaderButton();
             Notify($"Online map view could not start ({ex.Message}). Showing offline coordinate canvas.", true);
         }
     }
 
-    private void PushMarkersToWebView()
+    private void PushMarkersToWebView(bool preserveViewport = true)
     {
         if (!mapWebReady || mapWebView?.CoreWebView2 is null) return;
         var payload = new
         {
             type = "setMarkers",
             theme = Root.ActualTheme == ElementTheme.Light ? "light" : "dark",
+            style = string.IsNullOrWhiteSpace(settings.MapStyle) ? null : settings.MapStyle,
             viewMode = mapViewMode,
+            preserveViewport = preserveViewport || settings.MapHasSavedViewport,
+            centerLat = offlineCenterLat,
+            centerLon = offlineCenterLon,
+            zoom = offlineZoom,
+            places = currentVisitedPlaces.Select(p => new
+            {
+                title = p.Title,
+                subtitle = p.Subtitle,
+                count = p.Count,
+                favoriteCount = p.FavoriteCount,
+                centerLat = p.CenterLat,
+                centerLon = p.CenterLon,
+                minLat = p.MinLat,
+                maxLat = p.MaxLat,
+                minLon = p.MinLon,
+                maxLon = p.MaxLon,
+                representative = new
+                {
+                    sourceId = p.Representative.SourceId,
+                    relativePath = p.Representative.RelativePath,
+                    latitude = p.Representative.Latitude,
+                    longitude = p.Representative.Longitude,
+                    name = p.Representative.Name,
+                    kind = p.Representative.Kind,
+                    favorite = p.Representative.Favorite,
+                    dateTicks = p.Representative.DateTicks,
+                    locationName = p.Representative.LocationName,
+                    origin = p.Representative.LocationOrigin,
+                    cameraModel = p.Representative.CameraModel,
+                    dateText = new DateTime(p.Representative.DateTicks, DateTimeKind.Utc).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
+                }
+            }),
             markers = currentMapMarkers.Select(m => new
             {
                 sourceId = m.SourceId,
@@ -1205,11 +1755,7 @@ public sealed partial class MainWindow
                     var match = await Task.Run(() => catalog.GetItemAsync(sourceId, relPath));
                     if (match is not null) card = new MediaCard(match, settings);
                 }
-                if (card is not null)
-                {
-                    MapOverlay.Visibility = Visibility.Collapsed;
-                    OpenPreviewFor(card);
-                }
+                if (card is not null) OpenPreviewFromMap(card);
             }
             else if (msgType == "filterBounds")
             {
@@ -1218,6 +1764,8 @@ public sealed partial class MainWindow
                 var minLon = root.GetProperty("minLon").GetDouble();
                 var maxLon = root.GetProperty("maxLon").GetDouble();
                 activeMapBounds = new GeoBounds(minLat, maxLat, minLon, maxLon);
+                PersistOfflineViewport();
+                SaveMapPreferencesToSettings();
                 MapOverlay.Visibility = Visibility.Collapsed;
                 await Guard(Refresh);
             }
@@ -1227,17 +1775,47 @@ public sealed partial class MainWindow
                 var lon = root.GetProperty("lon").GetDouble();
                 await HandlePickedCoordinateAsync(lat, lon);
             }
-            else if (msgType == "viewportChanged" && root.TryGetProperty("visibleKeys", out var keysProp))
+            else if (msgType == "styleChanged" && root.TryGetProperty("style", out var stProp))
             {
-                var keySet = new HashSet<(string SourceId, string RelativePath)>();
-                foreach (var entry in keysProp.EnumerateArray())
+                settings.MapStyle = stProp.GetString() ?? "";
+            }
+            else if (msgType == "escapePressed")
+            {
+                if (mapPinMode)
                 {
-                    var sid = entry.GetProperty("sourceId").GetString() ?? "";
-                    var rp = entry.GetProperty("relativePath").GetString() ?? "";
-                    keySet.Add((sid, rp));
+                    mapPinMode = false;
+                    MapPinModeToggle.IsChecked = false;
+                    UpdatePinModeVisuals();
                 }
-                var vis = currentMapMarkers.Where(m => keySet.Contains((m.SourceId, m.RelativePath))).Take(24).ToArray();
-                await RefreshMapFilmstripAsync(vis);
+                else
+                {
+                    CloseMapView(this, new RoutedEventArgs());
+                }
+            }
+            else if (msgType == "viewportChanged")
+            {
+                if (root.TryGetProperty("centerLat", out var latP) &&
+                    root.TryGetProperty("centerLon", out var lonP) &&
+                    root.TryGetProperty("zoom", out var zoomP))
+                {
+                    offlineCenterLat = Math.Clamp(latP.GetDouble(), -85.0, 85.0);
+                    offlineCenterLon = Math.Clamp(lonP.GetDouble(), -180.0, 180.0);
+                    offlineZoom = Math.Clamp(zoomP.GetDouble(), 1.2, 18.0);
+                    PersistOfflineViewport();
+                }
+
+                if (MapStripToggle?.IsChecked == true && root.TryGetProperty("visibleKeys", out var keysProp))
+                {
+                    var keySet = new HashSet<(string SourceId, string RelativePath)>();
+                    foreach (var entry in keysProp.EnumerateArray())
+                    {
+                        var sid = entry.GetProperty("sourceId").GetString() ?? "";
+                        var rp = entry.GetProperty("relativePath").GetString() ?? "";
+                        keySet.Add((sid, rp));
+                    }
+                    var vis = currentMapMarkers.Where(m => keySet.Contains((m.SourceId, m.RelativePath))).Take(24).ToArray();
+                    await RefreshMapFilmstripAsync(vis);
+                }
             }
         }
         catch { }
@@ -1245,18 +1823,40 @@ public sealed partial class MainWindow
 
     // ---- Drawer Actions ----
 
+    private void MapPlaceFocusClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: VisitedPlaceSummary place })
+        {
+            FocusOfflineBounds(place.MinLat, place.MaxLat, place.MinLon, place.MaxLon);
+        }
+    }
+
+    private async void MapPlaceFilterClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: VisitedPlaceSummary place })
+        {
+            activeMapBounds = new GeoBounds(place.MinLat, place.MaxLat, place.MinLon, place.MaxLon);
+            PersistOfflineViewport();
+            SaveMapPreferencesToSettings();
+            MapOverlay.Visibility = Visibility.Collapsed;
+            await Guard(Refresh);
+        }
+    }
+
+    private async void MapPlacePreviewClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: VisitedPlaceSummary place })
+        {
+            var item = await Task.Run(() => catalog.GetItemAsync(place.Representative.SourceId, place.Representative.RelativePath));
+            if (item is not null) OpenPreviewFromMap(new MediaCard(item, settings));
+        }
+    }
+
     private void MapOfflineGroupZoomClicked(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: OfflineGeoCluster cluster } && cluster.Count > 0)
         {
-            offlineCenterLat = cluster.CenterLat;
-            offlineCenterLon = cluster.CenterLon;
-            offlineZoom = 11.0;
-            RenderOfflineCanvas();
-            if (mapWebReady && mapWebView?.CoreWebView2 is not null)
-            {
-                mapWebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "focusPin", lat = cluster.CenterLat, lon = cluster.CenterLon }));
-            }
+            FocusOfflineBounds(cluster.MinLat, cluster.MaxLat, cluster.MinLon, cluster.MaxLon);
         }
     }
 
@@ -1265,6 +1865,8 @@ public sealed partial class MainWindow
         if (sender is FrameworkElement { Tag: OfflineGeoCluster cluster } && cluster.MinLat != cluster.MaxLat)
         {
             activeMapBounds = new GeoBounds(cluster.MinLat, cluster.MaxLat, cluster.MinLon, cluster.MaxLon);
+            PersistOfflineViewport();
+            SaveMapPreferencesToSettings();
             MapOverlay.Visibility = Visibility.Collapsed;
             await Guard(Refresh);
         }
@@ -1285,11 +1887,7 @@ public sealed partial class MainWindow
     {
         if (sender is not FrameworkElement { Tag: MapDrawerMediaRow row }) return;
         var item = await Task.Run(() => catalog.GetItemAsync(row.Media.SourceId, row.Media.RelativePath));
-        if (item is not null)
-        {
-            MapOverlay.Visibility = Visibility.Collapsed;
-            OpenPreviewFor(new MediaCard(item, settings));
-        }
+        if (item is not null) OpenPreviewFromMap(new MediaCard(item, settings));
     }
 
     private async void MapDrawerItemPinClicked(object sender, RoutedEventArgs e)
@@ -1302,6 +1900,9 @@ public sealed partial class MainWindow
     {
         mapBackfillCts?.Cancel();
         mapStripThumbCts?.Cancel();
+        mapSearchDebounceCts?.Cancel();
+        SaveMapPreferencesToSettings();
+        try { settings.Save(); } catch { }
         mapPinMode = false;
         MapPinModeToggle.IsChecked = false;
         MapOverlay.Visibility = Visibility.Collapsed;

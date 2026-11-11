@@ -693,4 +693,61 @@ public class NewFeaturesTests : IDisposable
         Assert.InRange(bmpGps.Latitude!.Value, 12.49, 12.51);
         Assert.Equal("sidecar", bmpGps.Origin);
     }
+
+    [Fact]
+    public void MapOverviewBuilder_AggregatesVisitedPlacesSplitsDuplicatesAndComputesHeat()
+    {
+        var t1 = new DateTime(2024, 5, 1, 10, 0, 0, DateTimeKind.Utc).Ticks;
+        var t2 = new DateTime(2025, 6, 15, 14, 0, 0, DateTimeKind.Utc).Ticks;
+        var t3 = new DateTime(2025, 8, 20, 9, 0, 0, DateTimeKind.Utc).Ticks;
+
+        GeoMarker[] markers =
+        [
+            new("s1", "p1.jpg", 48.8566, 2.3522, t1, "p1.jpg", "photo", false, "Paris"),
+            new("s1", "p2.mp4", 48.8606, 2.3376, t2, "p2.mp4", "video", true, "Paris"),
+            // Nearby unnamed photo (~4 km away) merges into Paris cleanly instead of spawning duplicate label
+            new("s1", "p3.jpg", 48.8850, 2.3700, t3, "p3.jpg", "photo", false, null),
+            // Same city name in another hemisphere stays distinct
+            new("s1", "tx1.jpg", 33.6609, -95.5555, t2, "tx1.jpg", "photo", false, "Paris"),
+            // Distant unnamed trip forms a coordinate region
+            new("s1", "tk1.jpg", 35.6762, 139.6503, t1, "tk1.jpg", "photo", false, null),
+            new("s1", "tk2.jpg", 35.6812, 139.7671, t2, "tk2.jpg", "photo", true, null)
+        ];
+
+        var places = MapOverviewBuilder.BuildVisitedPlaces(markers);
+        Assert.Equal(3, places.Count);
+
+        // Top cluster is Paris (France): 3 items (2 photos, 1 video), representative prefers favorite (p2.mp4)
+        var parisFrance = places[0];
+        Assert.Equal("Paris", parisFrance.Title);
+        Assert.Equal(3, parisFrance.Count);
+        Assert.Equal(2, parisFrance.PhotoCount);
+        Assert.Equal(1, parisFrance.VideoCount);
+        Assert.Equal(1, parisFrance.FavoriteCount);
+        Assert.Equal("p2.mp4", parisFrance.Representative.Name);
+        Assert.True(parisFrance.HasNamedPlace);
+        Assert.Contains("2 photos", parisFrance.Subtitle);
+        Assert.Contains("1 video", parisFrance.Subtitle);
+
+        // Second is unnamed Tokyo-area coordinate cell (2 items, favorite tk2.jpg)
+        var unnamedRegion = places[1];
+        Assert.False(unnamedRegion.HasNamedPlace);
+        Assert.Equal(2, unnamedRegion.Count);
+        Assert.Contains("N", unnamedRegion.Title);
+        Assert.Contains("E", unnamedRegion.Title);
+        Assert.Equal("tk2.jpg", unnamedRegion.Representative.Name);
+
+        // Third is Paris, Texas (1 item)
+        var parisTx = places[2];
+        Assert.Equal("Paris", parisTx.Title);
+        Assert.Equal(1, parisTx.Count);
+        Assert.InRange(parisTx.CenterLon, -96.0, -95.0);
+
+        // Heat cells aggregate regional weights & resolve dominant place label
+        var heat = MapOverviewBuilder.BuildHeatCells(markers, cellDegrees: 0.25);
+        Assert.Equal(3, heat.Count);
+        Assert.Equal(3, heat[0].Count);
+        Assert.Equal("Paris", heat[0].TopLocationName);
+        Assert.True(heat[0].Weight > heat[1].Weight);
+    }
 }

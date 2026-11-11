@@ -611,7 +611,16 @@ public sealed partial class MainWindow : Window
         }
         else if (MapOverlay.Visibility == Visibility.Visible)
         {
-            CloseMapView(this, new RoutedEventArgs());
+            if (mapPinMode)
+            {
+                mapPinMode = false;
+                MapPinModeToggle.IsChecked = false;
+                UpdatePinModeVisuals();
+            }
+            else
+            {
+                CloseMapView(this, new RoutedEventArgs());
+            }
             e.Handled = true;
         }
         else if (GetSelectedCards().Length > 0)
