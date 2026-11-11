@@ -100,3 +100,23 @@ Luma: Agent Swarm Handoff (v0.6.0 to v1.0.0)
 - Verified packaging: `artifacts/Luma-win-x64.zip` (86.5 MB).
 
 
+
+
+---
+
+## Release v0.7.0 Implementation & Canonical Build (`2026-11-11T23:18:00+06:00`)
+
+### Implemented
+- **Collapsible Chrome & Action-Based Workspace:** `Ctrl+B` sidebar collapse (`0 px`), `Ctrl+H` header collapse, accordion sidebar sections (`Views`, `Albums`, `Smart collections`, `Folders & drives`) with collapsed item counts, hideable `MonthBrowser`, popover `Filters` and `Organize` controls, and selection-triggered `SelectionBar`.
+- **Viewing Modes & Stacks:** `LayoutMode` (`Uniform grid`, `Natural proportions`, `Moments (relevant size)` via `JustifiedRowBuilder`), non-destructive `PhotoStackBuilder` (RAW+JPEG pairs + <= 30s bursts), hover quick-favorite button, warm neutral light/dark palette + guarded `MicaBackdrop`.
+- **Dedicated Map View:** Privacy-first lazy `WebView2` map (`Assets/Map/map.html`) gated behind one-time per-session consent, offline coordinate cluster list, cached base64 thumbnail popups, and `GeoBounds` gallery filtering.
+- **Exact Time, Navigation, Sorting, Filtering & Transfers:** `Show exact time (HH:mm:ss)` card captions, `VisibleTimeRange` header HUD, selection time span, `Day & Session` grouping, offline-safe `PopulatePreviewMetadata`, additive EXIF/GPS columns in SQLite `metadata`, clickable `FolderBreadcrumbs`, `DayJumpPicker`, `Alt+Left` history, `Home`/`End` scroll, cursor-safe `Filename`/`Resolution`/`Duration`/`FavoritesFirst` sorting, extended search operators, Smart Collections UI (`+ Save view`), MRU `RecentDestinations`, opt-in `TransferConflictMode.Rename`, multi-file `F2` batch rename, Spacebar preview triage hotkeys, and `last-transfer.json` review/undo.
+- **Smoke Script Maintenance:** Renamed `Capture-Screen` to `Save-ScreenCapture` in `scripts/Smoke-Test.ps1` (`PSUseApprovedVerbs`) and added step timestamps.
+
+### Verification
+- `dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release --no-restore`: 111 passed, 0 failed, 0 skipped.
+- `dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release --no-restore`: 5 passed, 0 failed, 0 skipped.
+- `tests/Luma.Benchmarks`: Verified at 200k and 500k synthetic catalog items (`docs/performance/windows-v0.7.0-benchmarks.json`).
+- `scripts/Smoke-Test.ps1`: Post-edit run verified startup, 260-item scrolling, and Search & Favorites before being canceled during album steps upon user request to finalize the executable build; full end-to-end UIA smoke remains to be completed in CI or standalone shell.
+- Clean Release publish: `dotnet publish src/Luma.App/Luma.App.csproj -c Release -r win-x64 -p:Platform=x64 -o artifacts/Luma-win-x64` (`FileVersion=0.7.0.0`, `MainWindowXbf=True`, `MapHtml=True`, SHA-256 `D5209A56DFADAF3A39EEE3CC650977214251736A9F03861705C1BAA3F2FECC0E`).
+- Portable ZIP package: `artifacts/Luma-win-x64.zip` (`82.65 MB`, SHA-256 `51E4A6EB2C072586B4CEEA5BC8D8D305D460AAF282CE6C6B9EBEF768E7C1AFC9`).
