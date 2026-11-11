@@ -178,7 +178,7 @@ public sealed partial class MainWindow
         clearing=true; queryCancellation?.Cancel();
         try
         {
-            try { await Task.WhenAll(cacheTasks.ToArray()); } catch(OperationCanceledException) { }
+            try { await Task.WhenAll(SnapshotCacheTasks()); } catch(OperationCanceledException) { }
             await UseCache(async ()=> { await action(); return true; });
         }
         finally

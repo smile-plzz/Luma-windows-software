@@ -403,6 +403,9 @@ public sealed partial class MainWindow
             // Render first page immediately for sub-second first paint
             await LoadMore(); token.ThrowIfCancellationRequested();
 
+            // Update month controls immediately when reusing existing buckets, then refresh buckets asynchronously if needed.
+            UpdateMonthNavigationControls();
+
             // Defer month navigation calculations off critical paint path
             var navQuery = activeQuery with { BeforeTicks = null, FromTicks = null };
             _ = Task.Run(async () =>
@@ -427,18 +430,13 @@ public sealed partial class MainWindow
                             try
                             {
                                 DateJump.ItemsSource = monthBuckets;
-                                DateJump.SelectedItem = monthBuckets.FirstOrDefault(m => m.Month == selectedMonth);
-                                MonthBrowser.Visibility = !monthBarDismissed && !IsMemories && settings.SortIndex is 0 or 1 or 4 ? Visibility.Visible : Visibility.Collapsed;
-                                var monthIndex = monthBuckets.ToList().FindIndex(m => m.Month == selectedMonth);
-                                NewerMonthButton.IsEnabled = monthIndex > 0;
-                                OlderMonthButton.IsEnabled = monthBuckets.Count > 0 && monthIndex < monthBuckets.Count - 1;
-                                AllMonthsButton.IsEnabled = selectedMonth is not null || fromTicks is not null || beforeTicks is not null;
                             }
                             finally
                             {
                                 suppressFilterEvents--;
                             }
                         }
+                        UpdateMonthNavigationControls();
                         UpdateEmptyState();
                     });
                 }
@@ -571,26 +569,52 @@ public sealed partial class MainWindow
         }
     }
 
+    private string? lastVisibleTimeRangeText;
+
     private void UpdateVisibleTimeRange()
     {
         if (cards.Count == 0 || settings.SortIndex is not (0 or 1 or 4))
         {
-            VisibleTimePill.Visibility = Visibility.Collapsed;
+            if (VisibleTimePill.Visibility != Visibility.Collapsed)
+                VisibleTimePill.Visibility = Visibility.Collapsed;
             return;
         }
-        var realized = cards.Where(c => c.Realized).ToArray();
-        if (realized.Length == 0) realized = cards.Take(12).ToArray();
-        if (realized.Length == 0) { VisibleTimePill.Visibility = Visibility.Collapsed; return; }
 
-        var first = realized[0].Date;
-        var last = realized[^1].Date;
-        var minDate = first < last ? first : last;
-        var maxDate = first > last ? first : last;
+        MediaCard? first = null;
+        MediaCard? last = null;
+        for (int i = 0; i < cards.Count; i++)
+        {
+            if (cards[i].Realized) { first = cards[i]; break; }
+        }
+        for (int i = cards.Count - 1; i >= 0; i--)
+        {
+            if (cards[i].Realized) { last = cards[i]; break; }
+        }
+        if (first is null)
+        {
+            first = cards[0];
+            last = cards[Math.Min(11, cards.Count - 1)];
+        }
+        else if (last is null)
+        {
+            last = first;
+        }
 
-        VisibleTimeRange.Text = minDate.Date == maxDate.Date
+        var d0 = first.Date;
+        var d1 = last.Date;
+        var minDate = d0 < d1 ? d0 : d1;
+        var maxDate = d0 > d1 ? d0 : d1;
+
+        var formatted = minDate.Date == maxDate.Date
             ? $"{minDate:dd MMM yyyy · HH:mm:ss} - {maxDate:HH:mm:ss}"
             : $"{minDate:dd MMM yyyy HH:mm} - {maxDate:dd MMM yyyy HH:mm}";
-        VisibleTimePill.Visibility = Visibility.Visible;
+        if (!string.Equals(lastVisibleTimeRangeText, formatted, StringComparison.Ordinal))
+        {
+            lastVisibleTimeRangeText = formatted;
+            VisibleTimeRange.Text = formatted;
+        }
+        if (VisibleTimePill.Visibility != Visibility.Visible)
+            VisibleTimePill.Visibility = Visibility.Visible;
     }
 
     private static T? Descendant<T>(DependencyObject parent) where T : DependencyObject
@@ -813,6 +837,7 @@ public sealed partial class MainWindow
 
     private async void ShowTimeline(object sender, RoutedEventArgs e)
     {
+        ViewFlyout?.Hide();
         if (!ready) return;
         PushNavigationHistory();
         monthBarDismissed = false;
@@ -1030,15 +1055,48 @@ public sealed partial class MainWindow
         await Guard(() => RefreshGallery(true));
     }
 
+    private int FindSelectedMonthIndex()
+    {
+        if (selectedMonth is null) return -1;
+        for (int i = 0; i < monthBuckets.Count; i++)
+        {
+            if (string.Equals(monthBuckets[i].Month, selectedMonth, StringComparison.Ordinal))
+                return i;
+        }
+        return -1;
+    }
+
+    private void UpdateMonthNavigationControls()
+    {
+        suppressFilterEvents++;
+        try
+        {
+            var matched = selectedMonth is null ? null : monthBuckets.FirstOrDefault(m => string.Equals(m.Month, selectedMonth, StringComparison.Ordinal));
+            if (!ReferenceEquals(DateJump.SelectedItem, matched))
+                DateJump.SelectedItem = matched;
+            MonthBrowser.Visibility = !monthBarDismissed && !IsMemories && settings.SortIndex is 0 or 1 or 4
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            var monthIndex = FindSelectedMonthIndex();
+            NewerMonthButton.IsEnabled = monthIndex > 0;
+            OlderMonthButton.IsEnabled = monthBuckets.Count > 0 && monthIndex < monthBuckets.Count - 1;
+            AllMonthsButton.IsEnabled = selectedMonth is not null || fromTicks is not null || beforeTicks is not null;
+        }
+        finally
+        {
+            suppressFilterEvents--;
+        }
+    }
+
     private async void ClearMonth(object sender, RoutedEventArgs e) { ClearDateRange(); DayJumpPicker.Date = null; await Guard(() => RefreshGallery(true)); }
     private async void NewerMonth(object sender, RoutedEventArgs e)
     {
-        var index = monthBuckets.ToList().FindIndex(m => m.Month == selectedMonth);
+        var index = FindSelectedMonthIndex();
         if (index > 0) await ChooseMonth(monthBuckets[index - 1]);
     }
     private async void OlderMonth(object sender, RoutedEventArgs e)
     {
-        var index = monthBuckets.ToList().FindIndex(m => m.Month == selectedMonth);
+        var index = FindSelectedMonthIndex();
         if (index + 1 < monthBuckets.Count) await ChooseMonth(monthBuckets[index + 1]);
     }
 

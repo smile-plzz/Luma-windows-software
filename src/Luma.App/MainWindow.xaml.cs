@@ -24,6 +24,12 @@ public sealed partial class MainWindow : Window
     private ThumbnailService? thumbnails;
     private CancellationTokenSource? queryCancellation, scanCancellation, searchCancellation;
     private readonly HashSet<Task> cacheTasks = new();
+    private bool isClosing;
+
+    private Task[] SnapshotCacheTasks()
+    {
+        lock (cacheTasks) return cacheTasks.ToArray();
+    }
     private readonly HashSet<string> pendingCutIds = new();
     private CancellationTokenSource? preparationCancellation;
     private bool preparing, clearing;
@@ -124,6 +130,8 @@ public sealed partial class MainWindow : Window
 
     private void OnClosed(object? sender, WindowEventArgs? args)
     {
+        if (isClosing) return;
+        isClosing = true;
         SavePlace();
         placeTimer.Stop();
         ready = false;
@@ -133,7 +141,8 @@ public sealed partial class MainWindow : Window
         queryCancellation?.Cancel();
         searchCancellation?.Cancel();
         preparationCancellation?.Cancel();
-        try { Task.WaitAll(cacheTasks.ToArray(), TimeSpan.FromSeconds(2)); } catch (Exception) { /* Pending work must finish before releasing cache ownership. */ }
+        previewCancellation?.Cancel();
+        try { Task.WaitAll(SnapshotCacheTasks(), TimeSpan.FromSeconds(2)); } catch (Exception) { /* Pending work must finish before releasing cache ownership. */ }
         cache?.Dispose();
         App.Current.Exit();
         Environment.Exit(0);

@@ -14,9 +14,9 @@ public sealed partial class MainWindow
     private async Task<T> UseCache<T>(Func<Task<T>> action)
     {
         var task = Task.Run(action);
-        cacheTasks.Add(task);
+        lock (cacheTasks) cacheTasks.Add(task);
         try { return await task; }
-        finally { cacheTasks.Remove(task); }
+        finally { lock (cacheTasks) cacheTasks.Remove(task); }
     }
 
     private OfflinePreparation Preparation => new(catalog, cache!, thumbnails!);

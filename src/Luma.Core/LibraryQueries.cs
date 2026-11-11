@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using Microsoft.Data.Sqlite;
 
 namespace Luma.Core;
@@ -102,46 +103,6 @@ public sealed partial class MediaCache
         return list;
     }
 
-    private const string GalleryFrom = """
-        FROM media m
-        LEFT JOIN annotations a ON a.source_id=m.source_id AND a.relative_path=m.relative_path
-        LEFT JOIN media_ids i ON i.source_id=m.source_id AND i.relative_path=m.relative_path
-        LEFT JOIN metadata d ON d.source_id=m.source_id AND d.relative_path=m.relative_path AND d.length=m.length AND d.modified_ticks=m.modified_ticks
-        WHERE ($source IS NULL OR m.source_id=$source) AND ($kind IS NULL OR m.kind=$kind)
-        AND ($favorites=0 OR a.favorite=1)
-        AND ($untagged=0 OR a.tags IS NULL OR trim(a.tags)='')
-        AND ($memoryDay IS NULL OR (d.taken_ticks IS NOT NULL AND luma_memory(d.taken_ticks)=1))
-        AND ($search='' OR m.relative_path LIKE $search ESCAPE '\' OR a.tags LIKE $search ESCAPE '\' OR d.location_name LIKE $search ESCAPE '\' OR d.camera_model LIKE $search ESCAPE '\')
-        AND ($locationFilter='' OR d.location_name LIKE $locationFilter ESCAPE '\')
-        AND ($locOrigin IS NULL OR ($locOrigin='manual' AND d.location_origin='manual') OR ($locOrigin='file' AND d.latitude IS NOT NULL AND d.longitude IS NOT NULL AND (d.location_origin IS NULL OR d.location_origin!='manual')))
-        AND ($tagFilter='' OR a.tags LIKE $tagFilter ESCAPE '\')
-        AND ($negTagFilter='' OR a.tags IS NULL OR a.tags NOT LIKE $negTagFilter ESCAPE '\')
-        AND ($extFilter='' OR lower(m.relative_path) LIKE $extFilter ESCAPE '\')
-        AND ($negExtFilter='' OR lower(m.relative_path) NOT LIKE $negExtFilter ESCAPE '\')
-        AND ($yearFilter=0 OR luma_year(coalesce(d.taken_ticks, m.modified_ticks))=$yearFilter)
-        AND ($folderToken='' OR m.relative_path LIKE $folderToken ESCAPE '\')
-        AND ($orientation IS NULL OR (
-            d.width > 0 AND d.height > 0 AND (
-                ($orientation='landscape' AND d.width > d.height)
-                OR ($orientation='portrait' AND d.height > d.width)
-                OR ($orientation='square' AND d.width = d.height)
-            )))
-        AND ($is4k=0 OR COALESCE(d.width,0)>=3840 OR COALESCE(d.height,0)>=3840 OR (CAST(COALESCE(d.width,0) AS INTEGER)*CAST(COALESCE(d.height,0) AS INTEGER))>=8294400)
-        AND ($minLength IS NULL OR m.length >= $minLength)
-        AND ($maxLength IS NULL OR m.length <= $maxLength)
-        AND ($hasGps=0 OR (d.latitude IS NOT NULL AND d.longitude IS NOT NULL))
-        AND ($hasBounds=0 OR (d.latitude IS NOT NULL AND d.longitude IS NOT NULL AND d.latitude BETWEEN $minLat AND $maxLat AND (($minLon <= $maxLon AND d.longitude BETWEEN $minLon AND $maxLon) OR ($minLon > $maxLon AND (d.longitude >= $minLon OR d.longitude <= $maxLon)))))
-        AND ($searchAfter IS NULL OR COALESCE(d.taken_ticks, m.modified_ticks) >= $searchAfter)
-        AND ($searchBefore IS NULL OR COALESCE(d.taken_ticks, m.modified_ticks) <= $searchBefore)
-        AND ($folder='' OR m.relative_path LIKE $folder ESCAPE '\')
-        AND ($recursive=1 OR instr(substr(m.relative_path,length($prefix)+1),$separator)=0)
-        AND ($album IS NULL OR EXISTS(SELECT 1 FROM album_items ai WHERE ai.media_id=i.id AND ai.album_id=$album))
-        AND ($common=0 OR lower(m.relative_path) GLOB '*.jpg' OR lower(m.relative_path) GLOB '*.jpeg'
-          OR lower(m.relative_path) GLOB '*.png' OR lower(m.relative_path) GLOB '*.heic' OR lower(m.relative_path) GLOB '*.heif'
-          OR lower(m.relative_path) GLOB '*.mp4' OR lower(m.relative_path) GLOB '*.mov' OR lower(m.relative_path) GLOB '*.gif'
-          OR lower(m.relative_path) GLOB '*.webp' OR lower(m.relative_path) GLOB '*.bmp')
-        """ + " AND " + AllowedMediaSql;
-
     private static string OrderValue(MediaSort sort) => sort switch
     {
         MediaSort.Name => "m.relative_path COLLATE NOCASE",
@@ -154,18 +115,261 @@ public sealed partial class MediaCache
         _ => "m.modified_ticks"
     };
 
-    private static string QueryFrom(LibraryQuery query)
+    private static string EscapeLike(string value) =>
+        value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
+    private static void RegisterQueryFunctions(SqliteConnection db, MediaSort sort, LibraryQuery query, int parsedYear)
     {
-        if (query.Sort != MediaSort.Captured) return GalleryFrom;
-        var index = query.Descending == false ? "ix_browse_dates_asc" : "ix_browse_dates_desc";
-        return GalleryFrom.Replace("FROM media m", $"FROM browse_dates b INDEXED BY {index} CROSS JOIN media m ON m.source_id=b.source_id AND m.relative_path=b.relative_path");
+        if (sort == MediaSort.Type)
+            db.CreateFunction<string, string>("luma_extension", path => Path.GetExtension(path).ToLowerInvariant(), isDeterministic: true);
+        else if (sort == MediaSort.Filename)
+            db.CreateFunction<string, string>("luma_filename", path => Path.GetFileName(path), isDeterministic: true);
+
+        if (query.MemoriesOn is not null)
+        {
+            var reference = query.MemoriesOn.Value;
+            db.CreateFunction<long?, bool>("luma_memory", ticks =>
+            {
+                if (ticks is null || ticks.Value < DateTime.MinValue.Ticks || ticks.Value > DateTime.MaxValue.Ticks) return false;
+                var taken = new DateTime(ticks.Value, DateTimeKind.Utc).ToLocalTime();
+                return taken.Year < reference.Year && taken.Month == reference.Month && taken.Day == reference.Day;
+            });
+        }
+
+        if (parsedYear != 0)
+        {
+            db.CreateFunction<long?, int>("luma_year", ticks =>
+            {
+                if (ticks is null || ticks.Value < DateTime.MinValue.Ticks || ticks.Value > DateTime.MaxValue.Ticks) return 0;
+                return new DateTime(ticks.Value, DateTimeKind.Utc).ToLocalTime().Year;
+            }, isDeterministic: true);
+        }
     }
 
-    private static void RegisterQueryFunctions(SqliteConnection db)
+    internal static string BuildFilteredFrom(
+        LibraryQuery query,
+        ParsedSearchTokens parsed,
+        SqliteCommand cmd,
+        bool hasExclusions,
+        out bool browseDatesOnly,
+        bool includeAnnotations = false,
+        bool includeMediaIds = false,
+        bool includeMetadata = false,
+        bool requireMedia = false,
+        bool includeBrowseDates = false,
+        bool allowBrowseDatesIndexHint = true,
+        bool allowBrowseDatesAlone = true,
+        string? extraWhere = null)
     {
-        db.CreateFunction<string, string>("luma_extension", path => Path.GetExtension(path).ToLowerInvariant(), isDeterministic: true);
-        db.CreateFunction<string, string>("luma_filename", path => Path.GetFileName(path), isDeterministic: true);
+        var effectiveFav = query.FavoritesOnly || parsed.FavoritesOnly;
+        var effectiveUntagged = query.UntaggedOnly || parsed.UntaggedOnly;
+        var effectiveOrientation = query.Orientation ?? parsed.Orientation;
+        long? effectiveMinLen = query.MinLength is not null && parsed.MinLength is not null
+            ? Math.Max(query.MinLength.Value, parsed.MinLength.Value)
+            : query.MinLength ?? parsed.MinLength;
+        long? effectiveMaxLen = query.MaxLength is not null && parsed.MaxLength is not null
+            ? Math.Min(query.MaxLength.Value, parsed.MaxLength.Value)
+            : query.MaxLength ?? parsed.MaxLength;
+        var effectiveHasGps = query.HasGpsOnly || parsed.HasGps || query.MapBounds is not null;
+
+        bool needAnn = includeAnnotations || effectiveFav || effectiveUntagged || query.FavoritesFirst
+            || parsed.Text.Length > 0 || parsed.Tag.Length > 0 || parsed.NegTag.Length > 0;
+        bool needIds = includeMediaIds || query.AlbumId is not null;
+        bool needMeta = includeMetadata || query.MemoriesOn is not null || parsed.Text.Length > 0
+            || parsed.Location.Length > 0 || query.LocationOriginFilter is not null || parsed.Year != 0
+            || effectiveOrientation is not null || parsed.Is4k || effectiveHasGps || query.MapBounds is not null
+            || parsed.AfterTicks is not null || parsed.BeforeTicks is not null
+            || query.Sort is MediaSort.Resolution or MediaSort.Duration;
+        bool filterNeedsMedia = query.Kind is not null || parsed.Ext.Length > 0 || parsed.NegExt.Length > 0
+            || parsed.Folder.Length > 0 || effectiveMinLen is not null || effectiveMaxLen is not null
+            || query.Folder.Length > 0 || !query.IncludeDescendants || query.CommonOnly || hasExclusions
+            || parsed.Year != 0 || parsed.AfterTicks is not null || parsed.BeforeTicks is not null;
+
+        bool joinBrowseDates = includeBrowseDates || query.Sort == MediaSort.Captured;
+        browseDatesOnly = allowBrowseDatesAlone && joinBrowseDates && !requireMedia && !needAnn && !needIds && !needMeta && !filterNeedsMedia;
+        bool innerJoinMeta = !includeMetadata && (query.MemoriesOn is not null || parsed.Location.Length > 0
+            || query.LocationOriginFilter is not null || effectiveOrientation is not null
+            || effectiveHasGps || query.MapBounds is not null);
+
+        var sb = new StringBuilder(512);
+        if (browseDatesOnly)
+        {
+            sb.Append("FROM browse_dates b");
+            if (allowBrowseDatesIndexHint)
+            {
+                var index = query.Descending == false ? "ix_browse_dates_asc" : "ix_browse_dates_desc";
+                sb.Append(" INDEXED BY ").Append(index);
+            }
+        }
+        else if (joinBrowseDates)
+        {
+            sb.Append("FROM browse_dates b");
+            if (allowBrowseDatesIndexHint)
+            {
+                var index = query.Descending == false ? "ix_browse_dates_asc" : "ix_browse_dates_desc";
+                sb.Append(" INDEXED BY ").Append(index);
+            }
+            sb.Append(" CROSS JOIN media m ON m.source_id=b.source_id AND m.relative_path=b.relative_path");
+        }
+        else
+        {
+            sb.Append("FROM media m");
+        }
+
+        if (needAnn)
+            sb.Append(" LEFT JOIN annotations a ON a.source_id=m.source_id AND a.relative_path=m.relative_path");
+        if (needIds)
+            sb.Append(" LEFT JOIN media_ids i ON i.source_id=m.source_id AND i.relative_path=m.relative_path");
+        if (needMeta)
+        {
+            sb.Append(innerJoinMeta ? " JOIN metadata d ON " : " LEFT JOIN metadata d ON ");
+            sb.Append("d.source_id=m.source_id AND d.relative_path=m.relative_path AND d.length=m.length AND d.modified_ticks=m.modified_ticks");
+        }
+
+        sb.Append(" WHERE 1=1");
+        if (query.SourceId is not null)
+        {
+            sb.Append(joinBrowseDates ? " AND b.source_id=$source" : " AND m.source_id=$source");
+            cmd.Parameters.AddWithValue("$source", query.SourceId);
+        }
+        if (query.Kind is not null)
+        {
+            sb.Append(" AND m.kind=$kind");
+            cmd.Parameters.AddWithValue("$kind", query.Kind);
+        }
+        if (effectiveFav)
+            sb.Append(" AND a.favorite=1");
+        if (effectiveUntagged)
+            sb.Append(" AND (a.tags IS NULL OR trim(a.tags)='')");
+        if (query.MemoriesOn is not null)
+            sb.Append(" AND (d.taken_ticks IS NOT NULL AND luma_memory(d.taken_ticks)=1)");
+        if (parsed.Text.Length > 0)
+        {
+            sb.Append(" AND (m.relative_path LIKE $search ESCAPE '\\' OR a.tags LIKE $search ESCAPE '\\' OR d.location_name LIKE $search ESCAPE '\\' OR d.camera_model LIKE $search ESCAPE '\\')");
+            cmd.Parameters.AddWithValue("$search", "%" + EscapeLike(parsed.Text) + "%");
+        }
+        if (parsed.Location.Length > 0)
+        {
+            sb.Append(" AND d.location_name LIKE $locationFilter ESCAPE '\\'");
+            cmd.Parameters.AddWithValue("$locationFilter", "%" + EscapeLike(parsed.Location) + "%");
+        }
+        if (query.LocationOriginFilter is not null)
+        {
+            sb.Append(" AND (($locOrigin='manual' AND d.location_origin='manual') OR ($locOrigin='file' AND d.latitude IS NOT NULL AND d.longitude IS NOT NULL AND (d.location_origin IS NULL OR d.location_origin!='manual')))");
+            cmd.Parameters.AddWithValue("$locOrigin", query.LocationOriginFilter);
+        }
+        if (parsed.Tag.Length > 0)
+        {
+            sb.Append(" AND a.tags LIKE $tagFilter ESCAPE '\\'");
+            cmd.Parameters.AddWithValue("$tagFilter", "%" + EscapeLike(parsed.Tag) + "%");
+        }
+        if (parsed.NegTag.Length > 0)
+        {
+            sb.Append(" AND (a.tags IS NULL OR a.tags NOT LIKE $negTagFilter ESCAPE '\\')");
+            cmd.Parameters.AddWithValue("$negTagFilter", "%" + EscapeLike(parsed.NegTag) + "%");
+        }
+        if (parsed.Ext.Length > 0)
+        {
+            sb.Append(" AND lower(m.relative_path) LIKE $extFilter ESCAPE '\\'");
+            cmd.Parameters.AddWithValue("$extFilter", "%." + EscapeLike(parsed.Ext));
+        }
+        if (parsed.NegExt.Length > 0)
+        {
+            sb.Append(" AND lower(m.relative_path) NOT LIKE $negExtFilter ESCAPE '\\'");
+            cmd.Parameters.AddWithValue("$negExtFilter", "%." + EscapeLike(parsed.NegExt));
+        }
+        if (parsed.Year != 0)
+        {
+            sb.Append(" AND luma_year(coalesce(d.taken_ticks, m.modified_ticks))=$yearFilter");
+            cmd.Parameters.AddWithValue("$yearFilter", parsed.Year);
+        }
+        if (parsed.Folder.Length > 0)
+        {
+            sb.Append(" AND m.relative_path LIKE $folderToken ESCAPE '\\'");
+            cmd.Parameters.AddWithValue("$folderToken", "%" + EscapeLike(parsed.Folder) + "%");
+        }
+        if (effectiveOrientation is not null)
+        {
+            sb.Append(" AND (d.width > 0 AND d.height > 0 AND (($orientation='landscape' AND d.width > d.height) OR ($orientation='portrait' AND d.height > d.width) OR ($orientation='square' AND d.width = d.height)))");
+            cmd.Parameters.AddWithValue("$orientation", effectiveOrientation);
+        }
+        if (parsed.Is4k)
+            sb.Append(" AND (COALESCE(d.width,0)>=3840 OR COALESCE(d.height,0)>=3840 OR (CAST(COALESCE(d.width,0) AS INTEGER)*CAST(COALESCE(d.height,0) AS INTEGER))>=8294400)");
+        if (effectiveMinLen is not null)
+        {
+            sb.Append(" AND m.length >= $minLength");
+            cmd.Parameters.AddWithValue("$minLength", effectiveMinLen.Value);
+        }
+        if (effectiveMaxLen is not null)
+        {
+            sb.Append(" AND m.length <= $maxLength");
+            cmd.Parameters.AddWithValue("$maxLength", effectiveMaxLen.Value);
+        }
+        if (query.MapBounds is { } mb)
+        {
+            sb.Append(" AND (d.latitude IS NOT NULL AND d.longitude IS NOT NULL AND d.latitude BETWEEN $minLat AND $maxLat AND (($minLon <= $maxLon AND d.longitude BETWEEN $minLon AND $maxLon) OR ($minLon > $maxLon AND (d.longitude >= $minLon OR d.longitude <= $maxLon))))");
+            cmd.Parameters.AddWithValue("$minLat", mb.MinLat);
+            cmd.Parameters.AddWithValue("$maxLat", mb.MaxLat);
+            cmd.Parameters.AddWithValue("$minLon", mb.MinLon);
+            cmd.Parameters.AddWithValue("$maxLon", mb.MaxLon);
+        }
+        else if (effectiveHasGps)
+        {
+            sb.Append(" AND (d.latitude IS NOT NULL AND d.longitude IS NOT NULL)");
+        }
+        if (parsed.AfterTicks is not null)
+        {
+            sb.Append(" AND COALESCE(d.taken_ticks, m.modified_ticks) >= $searchAfter");
+            cmd.Parameters.AddWithValue("$searchAfter", parsed.AfterTicks.Value);
+        }
+        if (parsed.BeforeTicks is not null)
+        {
+            sb.Append(" AND COALESCE(d.taken_ticks, m.modified_ticks) <= $searchBefore");
+            cmd.Parameters.AddWithValue("$searchBefore", parsed.BeforeTicks.Value);
+        }
+        if (query.Folder.Length > 0)
+        {
+            var prefix = query.Folder.TrimEnd('\\', '/') + Path.DirectorySeparatorChar;
+            sb.Append(" AND m.relative_path LIKE $folder ESCAPE '\\'");
+            cmd.Parameters.AddWithValue("$folder", EscapeLike(prefix) + "%");
+        }
+        if (!query.IncludeDescendants)
+        {
+            var prefix = query.Folder.Length == 0 ? "" : query.Folder.TrimEnd('\\', '/') + Path.DirectorySeparatorChar;
+            sb.Append(" AND instr(substr(m.relative_path,length($prefix)+1),$separator)=0");
+            cmd.Parameters.AddWithValue("$prefix", prefix);
+            cmd.Parameters.AddWithValue("$separator", Path.DirectorySeparatorChar.ToString());
+        }
+        if (query.AlbumId is not null)
+        {
+            sb.Append(" AND EXISTS(SELECT 1 FROM album_items ai WHERE ai.media_id=i.id AND ai.album_id=$album)");
+            cmd.Parameters.AddWithValue("$album", query.AlbumId);
+        }
+        if (query.CommonOnly)
+        {
+            sb.Append(" AND (lower(m.relative_path) GLOB '*.jpg' OR lower(m.relative_path) GLOB '*.jpeg' OR lower(m.relative_path) GLOB '*.png' OR lower(m.relative_path) GLOB '*.heic' OR lower(m.relative_path) GLOB '*.heif' OR lower(m.relative_path) GLOB '*.mp4' OR lower(m.relative_path) GLOB '*.mov' OR lower(m.relative_path) GLOB '*.gif' OR lower(m.relative_path) GLOB '*.webp' OR lower(m.relative_path) GLOB '*.bmp')");
+        }
+        if (hasExclusions)
+            sb.Append(" AND ").Append(AllowedMediaSql);
+        if (!string.IsNullOrEmpty(extraWhere))
+            sb.Append(extraWhere);
+        return sb.ToString();
     }
+
+    internal static string BuildFilteredFrom(
+        LibraryQuery query,
+        ParsedSearchTokens parsed,
+        SqliteCommand cmd,
+        bool hasExclusions,
+        bool includeAnnotations = false,
+        bool includeMediaIds = false,
+        bool includeMetadata = false,
+        bool requireMedia = false,
+        bool includeBrowseDates = false,
+        bool allowBrowseDatesIndexHint = true,
+        bool allowBrowseDatesAlone = true,
+        string? extraWhere = null) =>
+        BuildFilteredFrom(query, parsed, cmd, hasExclusions, out _, includeAnnotations, includeMediaIds, includeMetadata, requireMedia, includeBrowseDates, allowBrowseDatesIndexHint, allowBrowseDatesAlone, extraWhere);
 
     private static long? ParseSizeToken(string raw)
     {
@@ -277,104 +481,77 @@ public sealed partial class MediaCache
         return new(string.Join(" ", textTokens), tag, negTag, ext, negExt, year, folder, fav, untagged, orientation, is4k, hasGps, minLen, maxLen, afterTicks, beforeTicks, location);
     }
 
-    private static void QueryParameters(SqliteCommand cmd, LibraryQuery query)
-    {
-        var reference = query.MemoriesOn.GetValueOrDefault();
-        cmd.Connection!.CreateFunction<long?, bool>("luma_memory", ticks =>
-        {
-            if (ticks is null || query.MemoriesOn is null || ticks.Value < DateTime.MinValue.Ticks || ticks.Value > DateTime.MaxValue.Ticks) return false;
-            var taken = new DateTime(ticks.Value, DateTimeKind.Utc).ToLocalTime();
-            return taken.Year < reference.Year && taken.Month == reference.Month && taken.Day == reference.Day;
-        });
-        cmd.Connection!.CreateFunction<long?, int>("luma_year", ticks =>
-        {
-            if (ticks is null || ticks.Value < DateTime.MinValue.Ticks || ticks.Value > DateTime.MaxValue.Ticks) return 0;
-            return new DateTime(ticks.Value, DateTimeKind.Utc).ToLocalTime().Year;
-        }, isDeterministic: true);
-        cmd.Parameters.AddWithValue("$memoryDay", (object?)query.MemoriesOn?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? DBNull.Value);
-        static string Escape(string value) => value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
-        var prefix = query.Folder.Length == 0 ? "" : query.Folder.TrimEnd('\\', '/') + Path.DirectorySeparatorChar;
-        var parsed = ParseSearch(query.Search);
-
-        var effectiveFav = query.FavoritesOnly || parsed.FavoritesOnly;
-        var effectiveUntagged = query.UntaggedOnly || parsed.UntaggedOnly;
-        var effectiveOrientation = query.Orientation ?? parsed.Orientation;
-        long? effectiveMinLen = query.MinLength is not null && parsed.MinLength is not null
-            ? Math.Max(query.MinLength.Value, parsed.MinLength.Value)
-            : query.MinLength ?? parsed.MinLength;
-        long? effectiveMaxLen = query.MaxLength is not null && parsed.MaxLength is not null
-            ? Math.Min(query.MaxLength.Value, parsed.MaxLength.Value)
-            : query.MaxLength ?? parsed.MaxLength;
-        var effectiveHasGps = query.HasGpsOnly || parsed.HasGps || query.MapBounds is not null;
-
-        cmd.Parameters.AddWithValue("$source", (object?)query.SourceId ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$kind", (object?)query.Kind ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$favorites", effectiveFav ? 1 : 0);
-        cmd.Parameters.AddWithValue("$untagged", effectiveUntagged ? 1 : 0);
-
-        cmd.Parameters.AddWithValue("$search", parsed.Text.Length == 0 ? "" : "%" + Escape(parsed.Text) + "%");
-        cmd.Parameters.AddWithValue("$tagFilter", parsed.Tag.Length == 0 ? "" : "%" + Escape(parsed.Tag) + "%");
-        cmd.Parameters.AddWithValue("$negTagFilter", parsed.NegTag.Length == 0 ? "" : "%" + Escape(parsed.NegTag) + "%");
-        cmd.Parameters.AddWithValue("$extFilter", parsed.Ext.Length == 0 ? "" : "%." + Escape(parsed.Ext));
-        cmd.Parameters.AddWithValue("$negExtFilter", parsed.NegExt.Length == 0 ? "" : "%." + Escape(parsed.NegExt));
-        cmd.Parameters.AddWithValue("$yearFilter", parsed.Year);
-        cmd.Parameters.AddWithValue("$folderToken", parsed.Folder.Length == 0 ? "" : "%" + Escape(parsed.Folder) + "%");
-        cmd.Parameters.AddWithValue("$locationFilter", parsed.Location.Length == 0 ? "" : "%" + Escape(parsed.Location) + "%");
-        cmd.Parameters.AddWithValue("$locOrigin", (object?)query.LocationOriginFilter ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$orientation", (object?)effectiveOrientation ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$is4k", parsed.Is4k ? 1 : 0);
-        cmd.Parameters.AddWithValue("$minLength", (object?)effectiveMinLen ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$maxLength", (object?)effectiveMaxLen ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$hasGps", effectiveHasGps ? 1 : 0);
-        cmd.Parameters.AddWithValue("$hasBounds", query.MapBounds is not null ? 1 : 0);
-        cmd.Parameters.AddWithValue("$minLat", query.MapBounds?.MinLat ?? 0.0);
-        cmd.Parameters.AddWithValue("$maxLat", query.MapBounds?.MaxLat ?? 0.0);
-        cmd.Parameters.AddWithValue("$minLon", query.MapBounds?.MinLon ?? 0.0);
-        cmd.Parameters.AddWithValue("$maxLon", query.MapBounds?.MaxLon ?? 0.0);
-        cmd.Parameters.AddWithValue("$searchAfter", (object?)parsed.AfterTicks ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$searchBefore", (object?)parsed.BeforeTicks ?? DBNull.Value);
-
-        cmd.Parameters.AddWithValue("$folder", prefix.Length == 0 ? "" : Escape(prefix) + "%");
-        cmd.Parameters.AddWithValue("$prefix", prefix); cmd.Parameters.AddWithValue("$separator", Path.DirectorySeparatorChar.ToString());
-        cmd.Parameters.AddWithValue("$recursive", query.IncludeDescendants ? 1 : 0);
-        cmd.Parameters.AddWithValue("$album", (object?)query.AlbumId ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("$common", query.CommonOnly ? 1 : 0);
-    }
-
     public async Task<LibraryPage> QueryAsync(LibraryQuery query, CancellationToken ct = default)
     {
         if (query.Offset < 0 || query.Limit is < 1 or > 500) throw new ArgumentOutOfRangeException(nameof(query));
-        await using var db = CreateConnection(); await db.OpenAsync(ct);
-        RegisterQueryFunctions(db);
+        await using var db = await OpenConfiguredConnectionAsync(ct);
+        var parsed = ParseSearch(query.Search);
+        RegisterQueryFunctions(db, query.Sort, query, parsed.Year);
         // A gallery read must not reserve SQLite's single writer slot. WAL lets
         // this deferred, SELECT-only snapshot coexist with a long-running scan.
         // Keep count and rows in one snapshot rather than removing the transaction.
         ct.ThrowIfCancellationRequested();
         await using var tx = db.BeginTransaction(deferred: true);
-        await using var cmd = db.CreateCommand(); cmd.Transaction = tx; QueryParameters(cmd, query);
+        var hasExclusions = await HasExclusionsAsync(db, tx, ct);
+
+        long total;
+        if (query.KnownTotal is long knownTotal)
+        {
+            total = knownTotal;
+        }
+        else
+        {
+            await using var countCmd = db.CreateCommand();
+            countCmd.Transaction = tx;
+            var countFrom = BuildFilteredFrom(
+                query, parsed, countCmd, hasExclusions,
+                includeAnnotations: false, includeMediaIds: false, includeMetadata: false,
+                requireMedia: false,
+                includeBrowseDates: query.Sort == MediaSort.Captured || query.BeforeTicks is not null || query.FromTicks is not null
+                    ? query.Sort == MediaSort.Captured
+                    : false,
+                allowBrowseDatesIndexHint: false,
+                allowBrowseDatesAlone: true);
+            var countDate = query.Sort == MediaSort.Captured ? "b.date_ticks" : "m.modified_ticks";
+            if (query.BeforeTicks is not null)
+            {
+                countFrom += " AND " + countDate + " <= $before";
+                countCmd.Parameters.AddWithValue("$before", query.BeforeTicks.Value);
+            }
+            if (query.FromTicks is not null)
+            {
+                countFrom += " AND " + countDate + " >= $from";
+                countCmd.Parameters.AddWithValue("$from", query.FromTicks.Value);
+            }
+            countCmd.CommandText = countFrom switch
+            {
+                "FROM media m WHERE 1=1" => "SELECT COUNT(*) FROM media",
+                "FROM browse_dates b WHERE 1=1" => "SELECT COUNT(*) FROM browse_dates",
+                _ => "SELECT COUNT(*) " + countFrom
+            };
+            total = Convert.ToInt64(await countCmd.ExecuteScalarAsync(ct));
+        }
+
+        await using var cmd = db.CreateCommand(); cmd.Transaction = tx;
         var value = OrderValue(query.Sort);
         var descending = query.Descending ?? query.Sort is MediaSort.Newest or MediaSort.Largest or MediaSort.Captured or MediaSort.Resolution or MediaSort.Duration;
-        var from = QueryFrom(query);
+        var from = BuildFilteredFrom(
+            query, parsed, cmd, hasExclusions,
+            includeAnnotations: true, includeMediaIds: true, includeMetadata: true,
+            requireMedia: true,
+            includeBrowseDates: query.Sort == MediaSort.Captured,
+            allowBrowseDatesIndexHint: true,
+            allowBrowseDatesAlone: false);
         if (query.BeforeTicks is not null)
         {
-            from += " AND " + (query.Sort == MediaSort.Captured ? OrderValue(MediaSort.Captured) : "m.modified_ticks") + " <= $before";
+            from += " AND " + (query.Sort == MediaSort.Captured ? "b.date_ticks" : "m.modified_ticks") + " <= $before";
             cmd.Parameters.AddWithValue("$before", query.BeforeTicks.Value);
         }
         if (query.FromTicks is not null)
         {
-            from += " AND " + (query.Sort == MediaSort.Captured ? OrderValue(MediaSort.Captured) : "m.modified_ticks") + " >= $from";
+            from += " AND " + (query.Sort == MediaSort.Captured ? "b.date_ticks" : "m.modified_ticks") + " >= $from";
             cmd.Parameters.AddWithValue("$from", query.FromTicks.Value);
         }
-        var simpleCount = query.Search.Trim().Length == 0 && !query.FavoritesOnly && !query.UntaggedOnly
-            && query.Orientation is null && query.MinLength is null && query.MaxLength is null
-            && !query.HasGpsOnly && query.MapBounds is null && query.LocationOriginFilter is null
-            && query.MemoriesOn is null && query.AlbumId is null
-            && !query.CommonOnly && query.Folder.Length == 0 && query.IncludeDescendants
-            && query.BeforeTicks is null && query.FromTicks is null;
-        cmd.CommandText = simpleCount
-            ? "SELECT COUNT(*) FROM media m WHERE ($source IS NULL OR m.source_id=$source) AND ($kind IS NULL OR m.kind=$kind) AND " + AllowedMediaSql
-            : "SELECT COUNT(*) " + from;
-        var total = query.KnownTotal ?? Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
         if (query.Cursor is not null)
         {
             var cmpEq = descending ? "<=" : ">=";
@@ -452,7 +629,8 @@ public sealed partial class MediaCache
     public async Task<LibraryItem?> GetItemAsync(string sourceId, string relativePath, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(sourceId) || string.IsNullOrWhiteSpace(relativePath)) return null;
-        await using var db = CreateConnection(); await db.OpenAsync(ct);
+        await using var db = await OpenConfiguredConnectionAsync(ct);
+        var hasExclusions = await HasExclusionsAsync(db, ct: ct);
         await using var cmd = db.CreateCommand();
         cmd.CommandText =
             "SELECT " + ItemColumnsSql + " " +
@@ -460,7 +638,7 @@ public sealed partial class MediaCache
             "LEFT JOIN annotations a ON a.source_id=m.source_id AND a.relative_path=m.relative_path " +
             "LEFT JOIN media_ids i ON i.source_id=m.source_id AND i.relative_path=m.relative_path " +
             "LEFT JOIN metadata d ON d.source_id=m.source_id AND d.relative_path=m.relative_path AND d.length=m.length AND d.modified_ticks=m.modified_ticks " +
-            "WHERE m.source_id=$sid AND m.relative_path=$rpath AND " + AllowedMediaSql + " LIMIT 1";
+            "WHERE m.source_id=$sid AND m.relative_path=$rpath" + (hasExclusions ? " AND " + AllowedMediaSql : "") + " LIMIT 1";
         cmd.Parameters.AddWithValue("$sid", sourceId);
         cmd.Parameters.AddWithValue("$rpath", relativePath);
         var roots = new Dictionary<string, bool>();
@@ -468,9 +646,9 @@ public sealed partial class MediaCache
         return await r.ReadAsync(ct) ? ReadLibraryItemRow(r, roots) : null;
     }
 
-    private static string AppendDateBounds(string from, SqliteCommand cmd, LibraryQuery query)
+    private static string AppendDateBounds(string from, SqliteCommand cmd, LibraryQuery query, bool useBrowseDates)
     {
-        var dateExpr = query.Sort == MediaSort.Captured ? OrderValue(MediaSort.Captured) : "COALESCE(d.taken_ticks,m.modified_ticks)";
+        var dateExpr = useBrowseDates ? "b.date_ticks" : "COALESCE(d.taken_ticks,m.modified_ticks)";
         if (query.BeforeTicks is not null)
         {
             from += " AND " + dateExpr + " <= $before";
@@ -486,12 +664,21 @@ public sealed partial class MediaCache
 
     public async Task<IReadOnlyList<GeoMarker>> QueryGeotaggedMarkersAsync(LibraryQuery query, int limit = 25000, CancellationToken ct = default)
     {
-        await using var db = CreateConnection(); await db.OpenAsync(ct);
-        RegisterQueryFunctions(db);
+        await using var db = await OpenConfiguredConnectionAsync(ct);
         var scoped = query with { HasGpsOnly = true, MapBounds = null };
+        var parsed = ParseSearch(scoped.Search);
+        RegisterQueryFunctions(db, scoped.Sort, scoped, parsed.Year);
+        var hasExclusions = await HasExclusionsAsync(db, ct: ct);
+        bool useBrowseDates = scoped.Sort == MediaSort.Captured && (scoped.BeforeTicks is not null || scoped.FromTicks is not null);
         await using var cmd = db.CreateCommand();
-        QueryParameters(cmd, scoped);
-        var from = AppendDateBounds(QueryFrom(scoped), cmd, scoped);
+        var baseFrom = BuildFilteredFrom(
+            scoped, parsed, cmd, hasExclusions,
+            includeAnnotations: true, includeMediaIds: false, includeMetadata: true,
+            requireMedia: true,
+            includeBrowseDates: useBrowseDates,
+            allowBrowseDatesIndexHint: false,
+            allowBrowseDatesAlone: false);
+        var from = AppendDateBounds(baseFrom, cmd, scoped, useBrowseDates);
         cmd.CommandText =
             "SELECT m.source_id,m.relative_path,d.latitude,d.longitude,COALESCE(d.taken_ticks,m.modified_ticks),m.kind,COALESCE(a.favorite,0),d.location_name,d.location_origin,COALESCE(d.width,0),COALESCE(d.height,0),d.camera_model " +
             from + " ORDER BY COALESCE(d.taken_ticks,m.modified_ticks) DESC LIMIT $limit";
@@ -521,13 +708,22 @@ public sealed partial class MediaCache
 
     public async Task<IReadOnlyList<PlaceTaggedItem>> QueryPlaceTaggedWithoutCoordsAsync(LibraryQuery query, int limit = 500, CancellationToken ct = default)
     {
-        await using var db = CreateConnection(); await db.OpenAsync(ct);
-        RegisterQueryFunctions(db);
+        await using var db = await OpenConfiguredConnectionAsync(ct);
         var scoped = query with { HasGpsOnly = false, MapBounds = null, LocationOriginFilter = null };
+        var parsed = ParseSearch(scoped.Search);
+        RegisterQueryFunctions(db, scoped.Sort, scoped, parsed.Year);
+        var hasExclusions = await HasExclusionsAsync(db, ct: ct);
+        bool useBrowseDates = scoped.Sort == MediaSort.Captured && (scoped.BeforeTicks is not null || scoped.FromTicks is not null);
         await using var cmd = db.CreateCommand();
-        QueryParameters(cmd, scoped);
-        var from = AppendDateBounds(QueryFrom(scoped), cmd, scoped) +
-            " AND (d.latitude IS NULL OR d.longitude IS NULL) AND d.location_name IS NOT NULL AND trim(d.location_name) != ''";
+        var baseFrom = BuildFilteredFrom(
+            scoped, parsed, cmd, hasExclusions,
+            includeAnnotations: true, includeMediaIds: false, includeMetadata: true,
+            requireMedia: true,
+            includeBrowseDates: useBrowseDates,
+            allowBrowseDatesIndexHint: false,
+            allowBrowseDatesAlone: false,
+            extraWhere: " AND (d.latitude IS NULL OR d.longitude IS NULL) AND d.location_name IS NOT NULL AND trim(d.location_name) != ''");
+        var from = AppendDateBounds(baseFrom, cmd, scoped, useBrowseDates);
         cmd.CommandText =
             "SELECT m.source_id,m.relative_path,m.length,m.modified_ticks,m.kind,d.location_name,COALESCE(d.taken_ticks,m.modified_ticks),COALESCE(a.favorite,0) " +
             from + " ORDER BY COALESCE(d.taken_ticks,m.modified_ticks) DESC LIMIT $limit";
@@ -546,12 +742,22 @@ public sealed partial class MediaCache
 
     public async Task<IReadOnlyList<LibraryItem>> QueryUnlocatedItemsAsync(LibraryQuery query, int limit = 200, CancellationToken ct = default)
     {
-        await using var db = CreateConnection(); await db.OpenAsync(ct);
-        RegisterQueryFunctions(db);
+        await using var db = await OpenConfiguredConnectionAsync(ct);
         var scoped = query with { HasGpsOnly = false, MapBounds = null, LocationOriginFilter = null };
+        var parsed = ParseSearch(scoped.Search);
+        RegisterQueryFunctions(db, scoped.Sort, scoped, parsed.Year);
+        var hasExclusions = await HasExclusionsAsync(db, ct: ct);
+        bool useBrowseDates = scoped.Sort == MediaSort.Captured && (scoped.BeforeTicks is not null || scoped.FromTicks is not null);
         await using var cmd = db.CreateCommand();
-        QueryParameters(cmd, scoped);
-        var from = AppendDateBounds(QueryFrom(scoped), cmd, scoped) + " AND (d.latitude IS NULL OR d.longitude IS NULL)";
+        var baseFrom = BuildFilteredFrom(
+            scoped, parsed, cmd, hasExclusions,
+            includeAnnotations: true, includeMediaIds: true, includeMetadata: true,
+            requireMedia: true,
+            includeBrowseDates: useBrowseDates,
+            allowBrowseDatesIndexHint: false,
+            allowBrowseDatesAlone: false,
+            extraWhere: " AND (d.latitude IS NULL OR d.longitude IS NULL)");
+        var from = AppendDateBounds(baseFrom, cmd, scoped, useBrowseDates);
         cmd.CommandText = "SELECT " + ItemColumnsSql + " " + from + " ORDER BY COALESCE(d.taken_ticks,m.modified_ticks) DESC LIMIT $limit";
         cmd.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 2000));
         var roots = new Dictionary<string, bool>();
@@ -563,12 +769,21 @@ public sealed partial class MediaCache
 
     public async Task<MapLocationSummary> QueryMapSummaryAsync(LibraryQuery query, CancellationToken ct = default)
     {
-        await using var db = CreateConnection(); await db.OpenAsync(ct);
-        RegisterQueryFunctions(db);
+        await using var db = await OpenConfiguredConnectionAsync(ct);
         var scoped = query with { HasGpsOnly = false, MapBounds = null, LocationOriginFilter = null };
+        var parsed = ParseSearch(scoped.Search);
+        RegisterQueryFunctions(db, scoped.Sort, scoped, parsed.Year);
+        var hasExclusions = await HasExclusionsAsync(db, ct: ct);
+        bool useBrowseDates = scoped.Sort == MediaSort.Captured && (scoped.BeforeTicks is not null || scoped.FromTicks is not null);
         await using var cmd = db.CreateCommand();
-        QueryParameters(cmd, scoped);
-        var from = AppendDateBounds(QueryFrom(scoped), cmd, scoped);
+        var baseFrom = BuildFilteredFrom(
+            scoped, parsed, cmd, hasExclusions,
+            includeAnnotations: false, includeMediaIds: false, includeMetadata: true,
+            requireMedia: true,
+            includeBrowseDates: useBrowseDates,
+            allowBrowseDatesIndexHint: false,
+            allowBrowseDatesAlone: false);
+        var from = AppendDateBounds(baseFrom, cmd, scoped, useBrowseDates);
         cmd.CommandText =
             "SELECT " +
             "COALESCE(SUM(CASE WHEN d.latitude IS NOT NULL AND d.longitude IS NOT NULL THEN 1 ELSE 0 END), 0), " +
@@ -588,14 +803,80 @@ public sealed partial class MediaCache
     // Month navigation describes the filtered collection, before a month/date range is applied.
     public async Task<IReadOnlyList<MonthBucket>> MonthBucketsAsync(LibraryQuery query, CancellationToken ct = default)
     {
-        await using var db = CreateConnection(); await db.OpenAsync(ct);
-        RegisterQueryFunctions(db);
-        await using var cmd = db.CreateCommand(); QueryParameters(cmd, query);
-        var date = query.Sort == MediaSort.Captured ? OrderValue(MediaSort.Captured) : "m.modified_ticks";
-        cmd.CommandText = "SELECT strftime('%Y-%m',(" + date + "-621355968000000000)/10000000,'unixepoch','localtime'),COUNT(*) " + QueryFrom(query) + " GROUP BY 1 ORDER BY 1 DESC";
+        await using var db = await OpenConfiguredConnectionAsync(ct);
+        var parsed = ParseSearch(query.Search);
+        RegisterQueryFunctions(db, query.Sort, query, parsed.Year);
+        await using var tx = db.BeginTransaction(deferred: true);
+        var hasExclusions = await HasExclusionsAsync(db, tx, ct);
+        await using var cmd = db.CreateCommand();
+        cmd.Transaction = tx;
+        var from = BuildFilteredFrom(
+            query, parsed, cmd, hasExclusions,
+            out bool browseDatesOnly,
+            includeAnnotations: false, includeMediaIds: false, includeMetadata: false,
+            requireMedia: false,
+            includeBrowseDates: query.Sort == MediaSort.Captured,
+            allowBrowseDatesIndexHint: false,
+            allowBrowseDatesAlone: true);
+
+        if (browseDatesOnly && query.SourceId is null && query.BeforeTicks is null && query.FromTicks is null)
+        {
+            var fast = await TryFastMonthBucketsAsync(db, tx, ct);
+            if (fast is not null) return fast;
+        }
+
+        var date = query.Sort == MediaSort.Captured ? "b.date_ticks" : "m.modified_ticks";
+        cmd.CommandText = "SELECT strftime('%Y-%m',(" + date + "-621355968000000000)/10000000,'unixepoch','localtime'),COUNT(*) " + from + " GROUP BY 1 ORDER BY 1 DESC";
         var result = new List<MonthBucket>(); await using var r = await cmd.ExecuteReaderAsync(ct);
         while (await r.ReadAsync(ct)) if (!r.IsDBNull(0)) result.Add(new(r.GetString(0), r.GetInt64(1)));
         return result;
+    }
+
+    private static async Task<IReadOnlyList<MonthBucket>?> TryFastMonthBucketsAsync(SqliteConnection db, SqliteTransaction tx, CancellationToken ct)
+    {
+        const long UnixEpochTicks = 621355968000000000L; // 1970-01-01T00:00:00Z
+        long maxSupported = DateTime.MaxValue.Ticks - TimeSpan.TicksPerDay * 2;
+        var buckets = new List<MonthBucket>();
+
+        await using var probeCmd = db.CreateCommand();
+        probeCmd.Transaction = tx;
+        probeCmd.CommandText = "SELECT date_ticks FROM browse_dates INDEXED BY ix_browse_dates_desc WHERE date_ticks < $upper ORDER BY date_ticks DESC LIMIT 1";
+        var pProbeUpper = probeCmd.Parameters.Add("$upper", SqliteType.Integer);
+        probeCmd.Prepare();
+
+        await using var countCmd = db.CreateCommand();
+        countCmd.Transaction = tx;
+        countCmd.CommandText = "SELECT COUNT(*) FROM browse_dates INDEXED BY ix_browse_dates_desc WHERE date_ticks >= $start AND date_ticks < $upper";
+        var pCountStart = countCmd.Parameters.Add("$start", SqliteType.Integer);
+        var pCountUpper = countCmd.Parameters.Add("$upper", SqliteType.Integer);
+        countCmd.Prepare();
+
+        long upperExclusive = long.MaxValue;
+        while (true)
+        {
+            if (buckets.Count >= 120) return null;
+            pProbeUpper.Value = upperExclusive;
+            var obj = await probeCmd.ExecuteScalarAsync(ct);
+            if (obj is null or DBNull) return buckets;
+
+            long t = Convert.ToInt64(obj);
+            if (t < UnixEpochTicks || t >= maxSupported) return null;
+
+            long unixSeconds = (t - UnixEpochTicks) / TimeSpan.TicksPerSecond;
+            var truncUtc = DateTimeOffset.FromUnixTimeSeconds(unixSeconds).UtcDateTime;
+            var local = TimeZoneInfo.ConvertTimeFromUtc(truncUtc, TimeZoneInfo.Local);
+            var localStart = new DateTime(local.Year, local.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
+            if (TimeZoneInfo.Local.IsInvalidTime(localStart) || TimeZoneInfo.Local.IsAmbiguousTime(localStart)) return null;
+
+            long monthStartTicks = TimeZoneInfo.ConvertTimeToUtc(localStart, TimeZoneInfo.Local).Ticks;
+            if (monthStartTicks > t || monthStartTicks >= upperExclusive) return null;
+
+            pCountStart.Value = monthStartTicks;
+            pCountUpper.Value = upperExclusive;
+            long count = Convert.ToInt64(await countCmd.ExecuteScalarAsync(ct));
+            buckets.Add(new MonthBucket($"{local.Year:D4}-{local.Month:D2}", count));
+            upperExclusive = monthStartTicks;
+        }
     }
 
     public async Task AnnotateAsync(CachedMedia media, bool favorite, string tags, CancellationToken ct = default)

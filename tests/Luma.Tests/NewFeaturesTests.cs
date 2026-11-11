@@ -496,4 +496,201 @@ public class NewFeaturesTests : IDisposable
         Assert.Single(kyotoSearch.Items);
         Assert.Equal("place_only.dng", kyotoSearch.Items[0].Media.RelativePath);
     }
+
+    [Fact]
+    public async Task LocateAsyncMatchesQueryOrderingAcrossAllSortsAndFavoritesFirst()
+    {
+        var dir = Path.Combine(tempDir, "LocateSorts");
+        Directory.CreateDirectory(Path.Combine(dir, "sub"));
+        var files = new[]
+        {
+            ("a.jpg", 2048, new DateTime(2024, 5, 1, 10, 0, 0, DateTimeKind.Utc), new DateTime(2024, 4, 1, 10, 0, 0, DateTimeKind.Utc), 4000, 3000, 0.0, true, "trip"),
+            ("b.png", 2048, new DateTime(2024, 5, 1, 10, 0, 0, DateTimeKind.Utc), new DateTime(2024, 4, 2, 10, 0, 0, DateTimeKind.Utc), 1920, 1080, 0.0, false, ""),
+            ("sub\\c.mp4", 8192, new DateTime(2024, 6, 1, 12, 0, 0, DateTimeKind.Utc), new DateTime(2024, 6, 1, 12, 0, 0, DateTimeKind.Utc), 3840, 2160, 14.5, true, "clip"),
+            ("d.webp", 1024, new DateTime(2024, 3, 1, 8, 0, 0, DateTimeKind.Utc), new DateTime(2024, 3, 1, 8, 0, 0, DateTimeKind.Utc), 1000, 1000, 0.0, false, "trip"),
+            ("e.jpg", 4096, new DateTime(2024, 5, 15, 9, 0, 0, DateTimeKind.Utc), new DateTime(2024, 5, 15, 9, 0, 0, DateTimeKind.Utc), 800, 1200, 0.0, false, "")
+        };
+
+        foreach (var (rel, len, mod, _, _, _, _, _, _) in files)
+        {
+            var full = Path.Combine(dir, rel);
+            File.WriteAllBytes(full, new byte[len]);
+            File.SetLastWriteTimeUtc(full, mod);
+        }
+
+        await catalog.ScanAsync("s-loc", dir);
+        foreach (var (rel, _, _, taken, w, h, dur, fav, tags) in files)
+        {
+            var item = (await catalog.GetItemAsync("s-loc", rel))!;
+            await catalog.SaveMetadataAsync(item.Media, new MediaMetadata(taken.Ticks, "test", w, h, dur, 1));
+            await catalog.AnnotateAsync(item.Media, fav, tags);
+        }
+
+        foreach (var sort in Enum.GetValues<MediaSort>())
+        {
+            foreach (var desc in new[] { false, true })
+            {
+                foreach (var favFirst in new[] { false, true })
+                {
+                    var q = new LibraryQuery(SourceId: "s-loc", Sort: sort, Descending: desc, FavoritesFirst: favFirst);
+                    var page = await catalog.QueryAsync(q);
+                    Assert.Equal(files.Length, page.Items.Count);
+                    for (int i = 0; i < page.Items.Count; i++)
+                    {
+                        var pos = await catalog.LocateAsync(q, page.Items[i].Media.SourceId, page.Items[i].Media.RelativePath);
+                        Assert.Equal(i, pos);
+                    }
+                }
+            }
+        }
+
+        var filteredQ = new LibraryQuery(SourceId: "s-loc", Search: "tag:trip", Sort: MediaSort.Captured, Descending: true);
+        var filteredPage = await catalog.QueryAsync(filteredQ);
+        Assert.Equal(2, filteredPage.Items.Count);
+        Assert.Equal(1, await catalog.LocateAsync(filteredQ, filteredPage.Items[1].Media.SourceId, filteredPage.Items[1].Media.RelativePath));
+        Assert.Null(await catalog.LocateAsync(filteredQ, "s-loc", "b.png"));
+    }
+
+    [Fact]
+    public async Task MonthBucketsAsyncFastPathMatchesFallbackAcrossManyMonthsAndFilters()
+    {
+        var dbPath = Path.Combine(tempDir, "months.db");
+        var monthCatalog = new MediaCache(dbPath);
+        await monthCatalog.InitializeAsync();
+
+        // Populate 130 distinct months (>120 fast-path threshold) plus 1 pre-1970 row.
+        await using (var db = new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = dbPath }.ToString()))
+        {
+            await db.OpenAsync();
+            await using var tx = db.BeginTransaction();
+            await using var cmd = db.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "INSERT INTO sources VALUES('s1','C:\\\\test','2026-01-01T00:00:00Z');";
+            await cmd.ExecuteNonQueryAsync();
+
+            var ins = db.CreateCommand();
+            ins.Transaction = tx;
+            ins.CommandText = "INSERT INTO media VALUES('s1',$p,1000,$t,'photo')";
+            var pP = ins.Parameters.Add("$p", Microsoft.Data.Sqlite.SqliteType.Text);
+            var pT = ins.Parameters.Add("$t", Microsoft.Data.Sqlite.SqliteType.Integer);
+            ins.Prepare();
+
+            var anchor = new DateTime(2025, 1, 15, 12, 0, 0, DateTimeKind.Utc);
+            for (int i = 0; i < 130; i++)
+            {
+                pP.Value = $"m{i:000}.jpg";
+                pT.Value = anchor.AddMonths(-i).Ticks;
+                await ins.ExecuteNonQueryAsync();
+            }
+            await tx.CommitAsync();
+        }
+
+        // Fast-path fallback (>120 months) returns all 130 months accurately
+        var allMonths = await monthCatalog.MonthBucketsAsync(new LibraryQuery(Sort: MediaSort.Captured));
+        Assert.Equal(130, allMonths.Count);
+        Assert.Equal("2025-01", allMonths[0].Month);
+
+        // With source filter on a small fast-path compatible DB (3 months) -> verify exact equality with fallback
+        var smallDbPath = Path.Combine(tempDir, "months-small.db");
+        var smallCat = new MediaCache(smallDbPath);
+        await smallCat.InitializeAsync();
+        await using (var db = new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = smallDbPath }.ToString()))
+        {
+            await db.OpenAsync();
+            await using var cmd = db.CreateCommand();
+            var d1 = new DateTime(2025, 3, 10, 12, 0, 0, DateTimeKind.Utc).Ticks;
+            var d2 = new DateTime(2025, 2, 10, 12, 0, 0, DateTimeKind.Utc).Ticks;
+            cmd.CommandText = $"""
+                INSERT INTO sources VALUES('s1','C:\\\\test','2026-01-01T00:00:00Z');
+                INSERT INTO media VALUES('s1','a.jpg',100,{d1},'photo');
+                INSERT INTO media VALUES('s1','b.jpg',100,{d1 + 10000000},'photo');
+                INSERT INTO media VALUES('s1','c.png',100,{d2},'photo');
+                """;
+            await cmd.ExecuteNonQueryAsync();
+        }
+        var fastBuckets = await smallCat.MonthBucketsAsync(new LibraryQuery(Sort: MediaSort.Captured));
+        Assert.Equal(2, fastBuckets.Count);
+        Assert.Equal("2025-03", fastBuckets[0].Month);
+        Assert.Equal(2, fastBuckets[0].Count);
+        Assert.Equal("2025-02", fastBuckets[1].Month);
+        Assert.Equal(1, fastBuckets[1].Count);
+
+        await smallCat.SetExclusionAsync(new LibraryExclusion("type", "", ".png"), true);
+        var exclBuckets = await smallCat.MonthBucketsAsync(new LibraryQuery(Sort: MediaSort.Captured));
+        Assert.Single(exclBuckets);
+        Assert.Equal(2, exclBuckets[0].Count);
+    }
+
+    [Fact]
+    public async Task ThumbnailKeyAndCacheOptimization_PreserveExactHashAndFastLruEviction()
+    {
+        var longPath = new string('x', 600) + "/📷_photo.jpg";
+        var media = new CachedMedia("vol-😀", longPath, 123456789L, 638712864000000000L, "photo", true);
+        var expectedRaw = System.Text.Encoding.UTF8.GetBytes($"{media.SourceId}\n{media.RelativePath}\n{media.Length}\n{media.ModifiedTicks}");
+        var expectedMediaKey = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(expectedRaw)).ToLowerInvariant();
+        Assert.Equal(expectedMediaKey, MediaCache.ThumbnailKey(media));
+
+        var expectedThumbKey = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"luma-thumbnail-v1:512:{expectedMediaKey}"))).ToLowerInvariant();
+        Assert.Equal(expectedThumbKey, ThumbnailCache.Key(media, 512));
+
+        var cacheDir = Path.Combine(tempDir, "thumb-opt");
+        using var thumbCache = new ThumbnailCache(cacheDir, maxBytes: 10);
+        var k1 = ThumbnailCache.Key(new("s", "1.jpg", 4, 1, "photo", true));
+        var k2 = ThumbnailCache.Key(new("s", "2.jpg", 4, 2, "photo", true));
+        var k3 = ThumbnailCache.Key(new("s", "3.jpg", 4, 3, "photo", true));
+        await thumbCache.StoreAsync(k1, new byte[4]);
+        await thumbCache.StoreAsync(k2, new byte[4]);
+        // Rapid read within same tick must still keep k1 alive and evict k2 when storing k3.
+        Assert.NotNull(await thumbCache.ReadAsync(k1));
+        await thumbCache.StoreAsync(k3, new byte[4]);
+        Assert.NotNull(await thumbCache.ReadAsync(k1));
+        Assert.Null(await thumbCache.ReadAsync(k2));
+        Assert.NotNull(await thumbCache.ReadAsync(k3));
+    }
+
+    [Fact]
+    public async Task DuplicateDetectionBulkTagAndMinimalGpsNonContainerSkip_WorkCorrectly()
+    {
+        var dir = Path.Combine(tempDir, "DupTags");
+        Directory.CreateDirectory(dir);
+        var sameBytes = new byte[2048];
+        Random.Shared.NextBytes(sameBytes);
+        var diffBytes = (byte[])sameBytes.Clone();
+        diffBytes[0] ^= 0xFF;
+
+        File.WriteAllBytes(Path.Combine(dir, "dup1.jpg"), sameBytes);
+        File.WriteAllBytes(Path.Combine(dir, "dup2.jpg"), sameBytes);
+        File.WriteAllBytes(Path.Combine(dir, "same_size_diff.jpg"), diffBytes);
+        File.WriteAllBytes(Path.Combine(dir, "tiny_ignored.jpg"), new byte[512]);
+        File.WriteAllBytes(Path.Combine(dir, "pic.bmp"), [0x42, 0x4D, 0, 0]);
+        File.WriteAllText(Path.Combine(dir, "pic.bmp.xmp"), """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+              <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description xmlns:exif="http://ns.adobe.com/exif/1.0/" exif:GPSLatitude="12,30.0N" exif:GPSLongitude="77,30.0E" />
+              </rdf:RDF>
+            </x:xmpmeta>
+            """);
+
+        var resolver = new MapResolver(new Dictionary<string, string> { ["s-dup"] = dir });
+        var scopedCatalog = new MediaCache(catalogPath, resolver);
+        await scopedCatalog.ScanAsync("s-dup", dir);
+
+        var dups = await scopedCatalog.FindDuplicatesAsync("s-dup");
+        var grp = Assert.Single(dups);
+        Assert.Equal(2, grp.Items.Count);
+        Assert.Equal(2048, grp.FileLength);
+
+        var allMedia = await scopedCatalog.ListAsync("s-dup");
+        await scopedCatalog.BulkTagAsync(allMedia, ["vacation", "2025"], []);
+        await scopedCatalog.RenameTagAsync("vacation", "holiday");
+        var tags = await scopedCatalog.GetTagsWithCountsAsync();
+        Assert.Contains(tags, t => t.Tag == "holiday" && t.Count == allMedia.Count);
+        Assert.DoesNotContain(tags, t => t.Tag == "vacation");
+
+        var bmpGps = MinimalGpsExtractor.ExtractFromFile(Path.Combine(dir, "pic.bmp"));
+        Assert.True(bmpGps.HasCoordinates);
+        Assert.InRange(bmpGps.Latitude!.Value, 12.49, 12.51);
+        Assert.Equal("sidecar", bmpGps.Origin);
+    }
 }

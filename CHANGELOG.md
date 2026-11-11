@@ -36,6 +36,8 @@ The format is based on Keep a Changelog. Plain language, no em-dashes.
 - Benchmark harness (`Luma.Benchmarks`) verifying query performance from 1,000 to 500,000 records.
 
 ### Changed
+- Performance & SQLite query engine upgrade across `MediaCache`, `LibraryQueries`, `BrowsePosition`, `ThumbnailCache`, `OfflinePreparation`, `DuplicateDetection`, `TagManagement`, `ResumableIndexing`, and `MinimalGpsExtractor` (cutting 500k synthetic catalog counts by 14.8x, month breakdown by 24.8x, and saved-position locate by 34.1x while reducing heap churn and NTFS MFT writes).
+- Stabilized gallery scroll bottom-loading in `Uniform` and `Natural proportions`/`Moments` layouts via incremental adaptive row updates, explicit scroll-offset preservation, zero-allocation `UpdateVisibleTimeRange`, synchronized `cacheTasks` tracking, and idempotent window shutdown disposal.
 - Mitigated intermittent WinUI 3 XAML refresh crash (0xc000027b) via strict `galleryGate` SemaphoreSlim synchronization.
 - Settings file resilience: damaged settings files fallback cleanly to defaults and preserve a `.corrupt` copy.
 - Unhandled exceptions write sanitized, path-redacted crash reports to `last-error.txt` and `last-error.json`.

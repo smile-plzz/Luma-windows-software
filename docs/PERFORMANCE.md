@@ -1,18 +1,25 @@
 # Large-library performance
 
-## v0.7.0 scale suite (PRF-1)
+## v0.7.0 scale suite (PRF-1, optimized query engine)
 
-Measurements gathered on Windows 11 with 8 logical cores using `Luma.Benchmarks`. Exercises synthetic catalog query and timeline aggregation scaling from 1,000 to 500,000 records.
+Measurements gathered on Windows 11 with 8 logical cores using `Luma.Benchmarks` (`-c Release`). Exercises synthetic catalog query and timeline aggregation scaling from 1,000 to 500,000 records.
+
+### After optimization vs baseline on the same machine
 
 | Records | First 120 + Count | Next Page (Cursor) | Month Breakdown | Locate Middle Anchor | Memory Delta |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1,000 | 20.41 ms | 3.57 ms | 11.15 ms | 7.25 ms | 0.14 MB |
-| 10,000 | 7.74 ms | 3.21 ms | 48.47 ms | 45.25 ms | 0.14 MB |
-| 100,000 | 47.86 ms | 1.98 ms | 312.42 ms | 172.95 ms | 0.14 MB |
-| 200,000 | 47.09 ms | 1.36 ms | 642.77 ms | 349.76 ms | 0.14 MB |
-| 500,000 | 118.03 ms | 1.47 ms | 1,455.79 ms | 903.06 ms | 0.14 MB |
+| 1,000 | 30.21 ms | 9.78 ms | 15.85 ms | 7.99 ms | 0.11 MB |
+| 10,000 | 4.51 ms | 4.84 ms | 7.02 ms | 1.26 ms | 0.11 MB |
+| 100,000 | 11.25 ms | 1.80 ms | 31.47 ms | 4.70 ms | 0.11 MB |
+| 200,000 | 20.89 ms | 1.16 ms | 45.90 ms | 7.15 ms | 0.11 MB |
+| 500,000 | 39.51 ms | 1.04 ms | 84.50 ms | 40.89 ms | 0.11 MB |
 
-[v0.7.0 raw measurements](performance/windows-v0.7.0-benchmarks.json). Single-run synthetic database timings; not physical HDD scan, image decoding, or UI frame rate. Pagination with cursors remains bounded below 3 ms across all library sizes up to 500,000 records. First paint path in v0.7.0 defers month timeline calculation to avoid blocking first 120 card render.
+Baseline on the same machine prior to optimization (`cc3de45`):
+- 100,000 records: First 120 + Count `62.03 ms`, Next Page `4.05 ms`, Month Breakdown `752.84 ms`, Locate Anchor `600.87 ms`
+- 200,000 records: First 120 + Count `70.97 ms`, Next Page `2.78 ms`, Month Breakdown `671.70 ms`, Locate Anchor `448.29 ms`
+- 500,000 records: First 120 + Count `583.91 ms`, Next Page `2.41 ms`, Month Breakdown `2,095.56 ms`, Locate Anchor `1,396.14 ms`
+
+[v0.7.0 raw measurements](performance/windows-v0.7.0-benchmarks.json). Single-run synthetic database timings; not physical HDD scan, image decoding, or UI frame rate. At 500,000 records, First 120 + Count improved 14.8x (`583.91 ms` to `39.51 ms`), Month Breakdown improved 24.8x (`2,095.56 ms` to `84.50 ms`), and Locate Middle Anchor improved 34.1x (`1,396.14 ms` to `40.89 ms`), with cursor pagination steady around `1 ms`. First paint path in v0.7.0 defers month timeline calculation to avoid blocking first 120 card render.
 
 ## v0.6.0 saved-position check
 
@@ -44,9 +51,16 @@ The previous-expression comparison executes the former COALESCE(capture date, mo
 
 ## Improvements
 
-Capture-date ordering uses a transactional index maintained when media or metadata changes. Stale capture metadata falls back to modification time. Upgrade builds the index locally once. Simple counts avoid unnecessary joins; subsequent pages reuse the view total.
+Capture-date ordering uses a transactional index maintained when media or metadata changes. Stale capture metadata falls back to modification time. Upgrade builds the index locally once.
 
-Metadata enrichment reads only missing/stale versions in batches of 100. Readers close before native decoding; completed batches share a write transaction. Unchanged versions do not open originals. Scanning uses prepared statements, directory-enumeration attributes, a pending-folder index and a running checkpoint count. Recycled tiles cancel queued preview requests; decoded images remain tied to realized tiles.
+Query and pipeline optimizations in this pass:
+- Dynamic SQL join & predicate pruning (`BuildFilteredFrom` in `LibraryQueries.cs`): omits unreferenced `LEFT JOIN`s (`annotations`, `media_ids`, `metadata`, `media`), omits `AllowedMediaSql` when `exclusions` is empty (`HasExclusionsAsync`), drops `$param='' OR ...` clauses for inactive filters, and switches required `metadata` predicates to inner `JOIN metadata` so partial indexes such as `ix_metadata_coords` activate cleanly.
+- Bounded covering-index month aggregation (`TryFastMonthBucketsAsync`): counts up to 120 local calendar months directly against `ix_browse_dates_desc` when unfiltered on capture timeline, avoiding 500k per-row `strftime(..., 'localtime')` conversions while falling back seamlessly for larger month spans, DST edge cases, or filtered views.
+- Index-range position locate (`BrowsePosition.LocateAsync`): replaces 500k `ROW_NUMBER() OVER(...)` window materialization with an anchor lookup plus split index-seek counts (`value > $aval` + equality tie-break).
+- SQLite connection tuning (`OpenConfiguredConnectionAsync`): sets per-connection `PRAGMA cache_size=-32768`, `PRAGMA temp_store=MEMORY`, and `PRAGMA busy_timeout=5000` without holding OS memory-mapped file handles across pool cleanup.
+- Thumbnail cache & offline prep (`ThumbnailCache.cs`, `OfflineBrowsing.cs`, `MediaCache.cs`): zero-heap-allocation UTF-8 key hashing (`ArrayPool` + `stackalloc`), monotonic in-memory LRU ordering, single-open `FileStream` reads with 15-minute NTFS MFT timestamp write throttling, and skipping redundant PNG byte reads during warm `PrepareAsync`.
+- Indexing, duplicates, tags, and GPS I/O (`ResumableIndexing.cs`, `DuplicateDetection.cs`, `TagManagement.cs`, `MinimalGpsExtractor.cs`): single `DirectoryInfo` stat per folder, extension filtering before relative-path normalization, prepared `scan_folders` & tag SQL statements, single-CTE duplicate candidate lookup with bounded parallel hashing, and skipping container stream opens on `.bmp`/`.gif`/non-ISOBMFF video formats unless `.xmp` sidecars apply.
+- UI responsiveness & shutdown safety (`MainWindow.*.cs`): zero-allocation scroll range updates in `UpdateVisibleTimeRange` with change deduplication, synchronized `cacheTasks` access, and idempotent `OnClosed` guard preventing duplicate disposal when both `Closed` and `AppWindow.Closing` fire.
 
 ## Limits and bench evaluation
 

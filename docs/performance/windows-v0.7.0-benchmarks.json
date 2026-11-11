@@ -1,47 +1,47 @@
 {
-  "Date": "2026-11-11T17:01:48.5782489Z",
+  "Date": "2026-11-11T20:03:30.7267774Z",
   "OS": "Microsoft Windows 10.0.26200",
   "Processors": 8,
   "Results": [
     {
       "Count": 1000,
-      "FirstBatchMs": 20.41,
-      "NextBatchMs": 3.57,
-      "MonthBreakdownMs": 11.15,
-      "LocateMiddleMs": 7.25,
-      "AllocatedMB": 0.14
+      "FirstBatchMs": 30.21,
+      "NextBatchMs": 9.78,
+      "MonthBreakdownMs": 15.85,
+      "LocateMiddleMs": 7.99,
+      "AllocatedMB": 0.11
     },
     {
       "Count": 10000,
-      "FirstBatchMs": 7.74,
-      "NextBatchMs": 3.21,
-      "MonthBreakdownMs": 48.47,
-      "LocateMiddleMs": 45.25,
-      "AllocatedMB": 0.14
+      "FirstBatchMs": 4.51,
+      "NextBatchMs": 4.84,
+      "MonthBreakdownMs": 7.02,
+      "LocateMiddleMs": 1.26,
+      "AllocatedMB": 0.11
     },
     {
       "Count": 100000,
-      "FirstBatchMs": 47.86,
-      "NextBatchMs": 1.98,
-      "MonthBreakdownMs": 312.42,
-      "LocateMiddleMs": 172.95,
-      "AllocatedMB": 0.14
+      "FirstBatchMs": 11.25,
+      "NextBatchMs": 1.8,
+      "MonthBreakdownMs": 31.47,
+      "LocateMiddleMs": 4.7,
+      "AllocatedMB": 0.11
     },
     {
       "Count": 200000,
-      "FirstBatchMs": 47.09,
-      "NextBatchMs": 1.36,
-      "MonthBreakdownMs": 642.77,
-      "LocateMiddleMs": 349.76,
-      "AllocatedMB": 0.14
+      "FirstBatchMs": 20.89,
+      "NextBatchMs": 1.16,
+      "MonthBreakdownMs": 45.9,
+      "LocateMiddleMs": 7.15,
+      "AllocatedMB": 0.11
     },
     {
       "Count": 500000,
-      "FirstBatchMs": 118.03,
-      "NextBatchMs": 1.47,
-      "MonthBreakdownMs": 1455.79,
-      "LocateMiddleMs": 903.06,
-      "AllocatedMB": 0.14
+      "FirstBatchMs": 39.51,
+      "NextBatchMs": 1.04,
+      "MonthBreakdownMs": 84.5,
+      "LocateMiddleMs": 40.89,
+      "AllocatedMB": 0.11
     }
   ],
   "Note": "Single-run synthetic SQLite catalog query timings; not physical HDD scan or image decode."

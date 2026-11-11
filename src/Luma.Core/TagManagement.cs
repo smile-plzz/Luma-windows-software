@@ -42,8 +42,7 @@ public sealed partial class MediaCache
         if (string.IsNullOrWhiteSpace(oldTag)) return;
         if (string.Equals(oldTag, newTag, StringComparison.OrdinalIgnoreCase)) return;
 
-        await using var db = CreateConnection();
-        await db.OpenAsync(ct);
+        await using var db = await OpenConfiguredConnectionAsync(ct);
         await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
 
         var itemsToUpdate = new List<(string SourceId, string RelativePath, string NewTags)>();
@@ -72,15 +71,22 @@ public sealed partial class MediaCache
             }
         }
 
-        foreach (var (sId, rPath, updatedTags) in itemsToUpdate)
+        if (itemsToUpdate.Count > 0)
         {
             await using var updateCmd = db.CreateCommand();
             updateCmd.Transaction = tx;
             updateCmd.CommandText = "UPDATE annotations SET tags=$tags WHERE source_id=$source AND relative_path=$path";
-            updateCmd.Parameters.AddWithValue("$tags", updatedTags);
-            updateCmd.Parameters.AddWithValue("$source", sId);
-            updateCmd.Parameters.AddWithValue("$path", rPath);
-            await updateCmd.ExecuteNonQueryAsync(ct);
+            var pTags = updateCmd.Parameters.Add("$tags", SqliteType.Text);
+            var pSource = updateCmd.Parameters.Add("$source", SqliteType.Text);
+            var pPath = updateCmd.Parameters.Add("$path", SqliteType.Text);
+            updateCmd.Prepare();
+            foreach (var (sId, rPath, updatedTags) in itemsToUpdate)
+            {
+                pTags.Value = updatedTags;
+                pSource.Value = sId;
+                pPath.Value = rPath;
+                await updateCmd.ExecuteNonQueryAsync(ct);
+            }
         }
 
         await tx.CommitAsync(ct);
@@ -94,21 +100,38 @@ public sealed partial class MediaCache
         var toRemove = removeTags.Select(t => t.Trim()).Where(t => t.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (toAdd.Count == 0 && toRemove.Count == 0) return;
 
-        await using var db = CreateConnection();
-        await db.OpenAsync(ct);
+        await using var db = await OpenConfiguredConnectionAsync(ct);
         await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
 
+        await using var getCmd = db.CreateCommand();
+        getCmd.Transaction = tx;
+        getCmd.CommandText = "SELECT favorite, tags FROM annotations WHERE source_id=$s AND relative_path=$p";
+        var gSource = getCmd.Parameters.Add("$s", SqliteType.Text);
+        var gPath = getCmd.Parameters.Add("$p", SqliteType.Text);
+        getCmd.Prepare();
+
+        await using var setCmd = db.CreateCommand();
+        setCmd.Transaction = tx;
+        setCmd.CommandText = """
+            INSERT INTO annotations(source_id, relative_path, favorite, tags)
+            VALUES($s, $p, $f, $t)
+            ON CONFLICT(source_id, relative_path) DO UPDATE SET tags=$t;
+            """;
+        var sSource = setCmd.Parameters.Add("$s", SqliteType.Text);
+        var sPath = setCmd.Parameters.Add("$p", SqliteType.Text);
+        var sFav = setCmd.Parameters.Add("$f", SqliteType.Integer);
+        var sTags = setCmd.Parameters.Add("$t", SqliteType.Text);
+        setCmd.Prepare();
+
+        char[] separators = [',', ';', ' '];
         foreach (var item in media)
         {
             string currentTags = "";
             bool favorite = false;
-            await using (var getCmd = db.CreateCommand())
+            gSource.Value = item.SourceId;
+            gPath.Value = item.RelativePath;
+            await using (var reader = await getCmd.ExecuteReaderAsync(ct))
             {
-                getCmd.Transaction = tx;
-                getCmd.CommandText = "SELECT favorite, tags FROM annotations WHERE source_id=$s AND relative_path=$p";
-                getCmd.Parameters.AddWithValue("$s", item.SourceId);
-                getCmd.Parameters.AddWithValue("$p", item.RelativePath);
-                await using var reader = await getCmd.ExecuteReaderAsync(ct);
                 if (await reader.ReadAsync(ct))
                 {
                     favorite = reader.GetInt32(0) == 1;
@@ -116,7 +139,7 @@ public sealed partial class MediaCache
                 }
             }
 
-            var parts = currentTags.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            var parts = currentTags.Split(separators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Where(t => !toRemove.Contains(t))
                 .Concat(toAdd)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -124,20 +147,11 @@ public sealed partial class MediaCache
 
             var newTags = string.Join(", ", parts);
 
-            await using (var setCmd = db.CreateCommand())
-            {
-                setCmd.Transaction = tx;
-                setCmd.CommandText = """
-                    INSERT INTO annotations(source_id, relative_path, favorite, tags)
-                    VALUES($s, $p, $f, $t)
-                    ON CONFLICT(source_id, relative_path) DO UPDATE SET tags=$t;
-                    """;
-                setCmd.Parameters.AddWithValue("$s", item.SourceId);
-                setCmd.Parameters.AddWithValue("$p", item.RelativePath);
-                setCmd.Parameters.AddWithValue("$f", favorite ? 1 : 0);
-                setCmd.Parameters.AddWithValue("$t", newTags);
-                await setCmd.ExecuteNonQueryAsync(ct);
-            }
+            sSource.Value = item.SourceId;
+            sPath.Value = item.RelativePath;
+            sFav.Value = favorite ? 1 : 0;
+            sTags.Value = newTags;
+            await setCmd.ExecuteNonQueryAsync(ct);
         }
 
         await tx.CommitAsync(ct);

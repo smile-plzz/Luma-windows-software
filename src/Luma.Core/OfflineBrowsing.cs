@@ -52,10 +52,13 @@ public sealed partial class MediaCache
     public async IAsyncEnumerable<CachedMedia> EnumerateCachedAsync(string? sourceId = null,
         [EnumeratorCancellation] CancellationToken ct = default, bool includeExcluded=false)
     {
-        await using var db = CreateConnection(); await db.OpenAsync(ct);
+        await using var db = await OpenConfiguredConnectionAsync(ct);
+        bool checkExclusions = !includeExcluded && await HasExclusionsAsync(db, ct: ct);
         await using var cmd = db.CreateCommand();
-        cmd.CommandText = "SELECT source_id,relative_path,length,modified_ticks,kind FROM media m WHERE ($id IS NULL OR source_id=$id) AND " + (includeExcluded ? "1=1" : AllowedMediaSql) + " ORDER BY source_id,relative_path";
-        cmd.Parameters.AddWithValue("$id", (object?)sourceId ?? DBNull.Value);
+        cmd.CommandText = sourceId is null
+            ? "SELECT source_id,relative_path,length,modified_ticks,kind FROM media m" + (checkExclusions ? " WHERE " + AllowedMediaSql : "") + " ORDER BY source_id,relative_path"
+            : "SELECT source_id,relative_path,length,modified_ticks,kind FROM media m WHERE source_id=$id" + (checkExclusions ? " AND " + AllowedMediaSql : "") + " ORDER BY relative_path";
+        if (sourceId is not null) cmd.Parameters.AddWithValue("$id", sourceId);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
             yield return new(reader.GetString(0), reader.GetString(1), reader.GetInt64(2), reader.GetInt64(3), reader.GetString(4), false);
@@ -92,11 +95,14 @@ public sealed class OfflinePreparation(MediaCache catalog, ThumbnailCache cache,
     public async Task<OfflineCoverage> PrepareAsync(string? sourceId = null,
         IProgress<long>? progress = null, CancellationToken ct = default)
     {
+        var existing = (await cache.SnapshotAsync(ct)).Keys;
         long visited = 0;
         await foreach (var media in catalog.EnumerateCachedAsync(sourceId, ct))
         {
             ct.ThrowIfCancellationRequested();
-            await thumbnails.GetAsync(media, ct: ct, allowEviction: false);
+            // Skip reading/re-touching cached PNG bytes when this media version is already retained.
+            if (!existing.Contains(ThumbnailCache.Key(media)))
+                await thumbnails.GetAsync(media, ct: ct, allowEviction: false);
             progress?.Report(++visited);
         }
         // Count retained versions, not successful decodes. A browsing request may have evicted entries.

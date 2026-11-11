@@ -1,4 +1,6 @@
 using Microsoft.Data.Sqlite;
+using System.Buffers;
+using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -19,6 +21,24 @@ public sealed partial class MediaCache(string databasePath, ISourceResolver? sou
         // SQLite's built-in NOCASE only handles ASCII. Windows folder names need Unicode comparison.
         db.CreateCollation("LUMA_PATH", (a,b) => StringComparer.OrdinalIgnoreCase.Compare(a,b));
         return db;
+    }
+
+    private async Task<SqliteConnection> OpenConfiguredConnectionAsync(CancellationToken ct = default)
+    {
+        var db = CreateConnection();
+        await db.OpenAsync(ct);
+        await using var pragma = db.CreateCommand();
+        pragma.CommandText = "PRAGMA cache_size=-32768;PRAGMA temp_store=MEMORY;PRAGMA busy_timeout=5000;";
+        await pragma.ExecuteNonQueryAsync(ct);
+        return db;
+    }
+
+    private static async Task<bool> HasExclusionsAsync(SqliteConnection db, SqliteTransaction? tx = null, CancellationToken ct = default)
+    {
+        await using var cmd = db.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT 1 FROM exclusions LIMIT 1";
+        return await cmd.ExecuteScalarAsync(ct) is not null;
     }
 
     public async Task<bool> QuickCheckAsync(CancellationToken ct = default)
@@ -199,10 +219,48 @@ public sealed partial class MediaCache(string databasePath, ISourceResolver? sou
         return result;
     }
 
+    internal static string ToLowerHex(ReadOnlySpan<byte> bytes)
+    {
+        const string Hex = "0123456789abcdef";
+        Span<char> chars = bytes.Length <= 64 ? stackalloc char[bytes.Length * 2] : new char[bytes.Length * 2];
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            var b = bytes[i];
+            chars[i * 2] = Hex[b >> 4];
+            chars[i * 2 + 1] = Hex[b & 0x0F];
+        }
+        return new string(chars);
+    }
+
     public static string ThumbnailKey(CachedMedia media)
     {
-        var data = Encoding.UTF8.GetBytes($"{media.SourceId}\n{media.RelativePath}\n{media.Length}\n{media.ModifiedTicks}");
-        return Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant();
+        // Exact UTF-8 format: "{SourceId}\n{RelativePath}\n{Length}\n{ModifiedTicks}"
+        var maxBytes = Encoding.UTF8.GetMaxByteCount(media.SourceId.Length + media.RelativePath.Length) + 48;
+        byte[]? rented = null;
+        Span<byte> buf = maxBytes <= 512
+            ? stackalloc byte[512]
+            : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
+        try
+        {
+            var written = Encoding.UTF8.GetBytes(media.SourceId, buf);
+            buf[written++] = (byte)'\n';
+            written += Encoding.UTF8.GetBytes(media.RelativePath, buf[written..]);
+            buf[written++] = (byte)'\n';
+            if (!Utf8Formatter.TryFormat(media.Length, buf[written..], out var lenBytes))
+                throw new InvalidOperationException("Failed to format length.");
+            written += lenBytes;
+            buf[written++] = (byte)'\n';
+            if (!Utf8Formatter.TryFormat(media.ModifiedTicks, buf[written..], out var ticksBytes))
+                throw new InvalidOperationException("Failed to format modified ticks.");
+            written += ticksBytes;
+            Span<byte> hash = stackalloc byte[32];
+            SHA256.HashData(buf[..written], hash);
+            return ToLowerHex(hash);
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<byte>.Shared.Return(rented);
+        }
     }
 
     private static readonly HashSet<string> Videos = new(StringComparer.OrdinalIgnoreCase)

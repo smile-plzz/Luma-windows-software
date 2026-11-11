@@ -61,17 +61,18 @@ public static partial class MinimalGpsExtractor
         ExtractedLocation best = new();
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return best;
 
-        try
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is not (".bmp" or ".gif" or ".ico" or ".svg" or ".wmv" or ".avi" or ".mkv" or ".webm" or ".flv" or ".ts" or ".mts" or ".m2ts"))
         {
-            var ext = Path.GetExtension(path).ToLowerInvariant();
-            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            try
             {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 best = ExtractFromStream(fs, ext);
             }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            // Keep going so an adjacent .xmp sidecar can still supply metadata cleanly.
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                // Keep going so an adjacent .xmp sidecar can still supply metadata cleanly.
+            }
         }
 
         // Check adjacent XMP sidecars (<file>.ext.xmp and <file>.xmp) when coords or place name are still missing.
