@@ -38,3 +38,24 @@ Luma: Agent Swarm Handoff (v0.6.0 to v1.0.0)
   - `docs/swarm/USER_JOURNEYS.md` (RCN-4)
   - `docs/swarm/THREAT_MODEL_DRAFT.md` (SEC-1)
   - Batch Owner Decision & Human-Only acceptance package prepared (ORC-3)
+
+## 2026-11-11T20:39:50+06:00 - Executable Build and Verification
+
+### Task Received
+- Rebuild and provide the updated executable (`Luma.App.exe`) with the latest codebase improvements.
+
+### Actions Taken
+- Verified test suite status across all projects:
+  - `Luma.Tests`: 95 passed, 0 failed, 0 skipped.
+  - `Luma.Windows.Tests`: 4 passed, 0 failed, 0 skipped.
+- Executed self-contained release build:
+  - Command: `dotnet publish src/Luma.App/Luma.App.csproj -c Release -r win-x64 -p:Platform=x64 -o artifacts/Luma-win-x64`
+  - Output binary: `artifacts/Luma-win-x64/Luma.App.exe`
+- Created portable distribution archive:
+  - Output archive: `artifacts/Luma-win-x64.zip`
+
+### Verification
+- `dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release`: passed (95 tests).
+- `dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release`: passed (4 tests).
+- Verified executable file properties and timestamp: `artifacts/Luma-win-x64/Luma.App.exe` (316,928 bytes).
+
