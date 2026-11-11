@@ -278,3 +278,4 @@ public static class MapOverviewBuilder
         return $"{d0.ToString("MMM yyyy", CultureInfo.InvariantCulture)} - {d1.ToString("MMM yyyy", CultureInfo.InvariantCulture)}";
     }
 }
+
