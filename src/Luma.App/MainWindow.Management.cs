@@ -94,6 +94,23 @@ public sealed partial class MainWindow
                 if(!await Confirm("Restart indexing?",$"Discard the saved indexing checkpoint for {source.RootPath} and start a fresh scan? The published gallery and originals stay intact.","Restart"))return;
                 await catalog.DiscardIndexingAsync(source.Id); await RefreshSources(source.Id);
             }); menu.Items.Add(restart);
+            var reconcile = new MenuFlyoutItem { Text = "Reconcile moved files", IsEnabled = source.IsOnline };
+            reconcile.Click += (_, _) => Choose(async () =>
+            {
+                Notify($"Checking {source.RootPath} for externally moved files…");
+                var report = await Task.Run(() => catalog.ReconcileExternalMovesAsync(source.Id));
+                if (report.Count > 0)
+                {
+                    await LoadAlbums();
+                    await Refresh();
+                    Notify($"Reconciled {report.Count} moved file(s). Organization, favorites, and albums preserved!");
+                }
+                else
+                {
+                    Notify("No moved files detected in this source.");
+                }
+            });
+            menu.Items.Add(reconcile);
             row.Children.Add(buttons); row.Children.Add(more); panel.Children.Add(row);
         }
         await dialog.ShowAsync(); if(action is not null) await action();
@@ -111,6 +128,13 @@ public sealed partial class MainWindow
         content.Children.Add(removePreviews);
         var dialog=new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot=Root.XamlRoot,Title="Remove source from Luma?",Content=content,PrimaryButtonText="Remove from Luma",CloseButtonText="Cancel",DefaultButton=ContentDialogButton.Close };
         if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
+        try
+        {
+            var backupDir = Path.Combine(AppSettings.LocalRoot, "backups");
+            Directory.CreateDirectory(backupDir);
+            await catalog.CreateBackupAsync(Path.Combine(backupDir, $"catalog-pre-remove-{DateTime.UtcNow:yyyyMMddHHmmss}.db"));
+        }
+        catch { }
         await catalog.RemoveSourceAsync(id);
         if(SelectedSource==id) { var wasReady=ready; ready=false; FolderFilter.Text=""; ClearDateRange(); ready=wasReady; }
         await LoadSources(); await LoadAlbums(); await Refresh();

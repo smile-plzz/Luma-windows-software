@@ -13,6 +13,7 @@
   </Grid.Resources>
   <Grid.KeyboardAccelerators>
    <KeyboardAccelerator Key="C" Modifiers="Control" Invoked="CopyShortcut"/><KeyboardAccelerator Key="X" Modifiers="Control" Invoked="CutShortcut"/><KeyboardAccelerator Key="V" Modifiers="Control" Invoked="PasteShortcut"/><KeyboardAccelerator Key="A" Modifiers="Control" Invoked="SelectShortcut"/><KeyboardAccelerator Key="Delete" Invoked="DeleteShortcut"/><KeyboardAccelerator Key="F2" Invoked="RenameShortcut"/>
+   <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="SearchShortcut"/><KeyboardAccelerator Key="F5" Invoked="RefreshShortcut"/><KeyboardAccelerator Key="Enter" Invoked="OpenShortcut"/><KeyboardAccelerator Key="Escape" Invoked="EscapeShortcut"/>
    <KeyboardAccelerator Key="Space" Invoked="SpacePreviewShortcut"/>
   </Grid.KeyboardAccelerators>
   <Grid.ColumnDefinitions><ColumnDefinition Width="224"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>

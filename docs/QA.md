@@ -2,7 +2,7 @@
 
 ## v0.6.0 final experience shipment
 
-[Successful run 38355699422](https://github.com/smile-plzz/Luma/actions/runs/38355699422), attempt 2, source `f655715982253824c41329425c181c8876d9f3d5`, merged through [PR #14](https://github.com/smile-plzz/Luma/pull/14) at `c85baa965e2220f7ee7ee17c4d9b7634a24a2d0d`. All 82 core tests passed on each of Windows and Linux, four Windows integration tests passed, and the packaged native UI checks passed. Deep visible-item/inset restoration, earlier-item navigation, source/folder/month restoration while disconnected, Reset, both import phases and accessible help were verified. Existing gallery, clipboard, exclusion and maintenance workflows passed. The themed dialog screenshot was inspected.
+[Successful run 38355699422](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38355699422), attempt 2, source `f655715982253824c41329425c181c8876d9f3d5`, merged through [PR #14](https://github.com/smile-plzz/Luma-windows-software/pull/14) at `c85baa965e2220f7ee7ee17c4d9b7634a24a2d0d`. All 82 core tests passed on each of Windows and Linux, four Windows integration tests passed, and the packaged native UI checks passed. Deep visible-item/inset restoration, earlier-item navigation, source/folder/month restoration while disconnected, Reset, both import phases and accessible help were verified. Existing gallery, clipboard, exclusion and maintenance workflows passed. The themed dialog screenshot was inspected.
 
 ZIP SHA-256: `320e0d5dea5226563b980b18927fc99612bdbe6022153d3b46896dd1ef1aef5c`. The release contains this exact tested artifact and SHA256SUMS.txt.
 
@@ -12,7 +12,7 @@ Evidence: `final-experience.txt`, `import-phases.txt`, `before-offline-restart.j
 
 ## v0.5.0 verified exclusions and branding shipment
 
-Exact package from [successful build 38350255657](https://github.com/smile-plzz/Luma/actions/runs/38350255657), source `b7d9eb16cc3547c64928e8fbdc202b7e0a400083`, merged through [PR #13](https://github.com/smile-plzz/Luma/pull/13) at `4941618f865a95cccbae01f1fc464d1b97e9e4a7`. All 77 core tests passed on each of Windows and Linux, four Windows integration tests passed, and the packaged app passed native UI automation for exclusions and existing workflows. The exclusion dialog screenshot and embedded executable icon were inspected.
+Exact package from [successful build 38350255657](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38350255657), source `b7d9eb16cc3547c64928e8fbdc202b7e0a400083`, merged through [PR #13](https://github.com/smile-plzz/Luma-windows-software/pull/13) at `4941618f865a95cccbae01f1fc464d1b97e9e4a7`. All 77 core tests passed on each of Windows and Linux, four Windows integration tests passed, and the packaged app passed native UI automation for exclusions and existing workflows. The exclusion dialog screenshot and embedded executable icon were inspected.
 
 SHA-256: `e28cdc156a234b57b68a2561bd8fad51bbbc43c9d8351c16f90312a9c2513aad`. Also supplied in SHA256SUMS.txt. Physical HDD performance and codec acceptance remain part of real-life testing.
 
@@ -20,27 +20,27 @@ Native `exclusions.txt` verifies folder cancellation, folder/type/source hiding,
 
 ## v0.3.0 verified filters and navigation shipment
 
-[Run 38260963380](https://github.com/smile-plzz/Luma/actions/runs/38260963380), source `35103a06e88f85a2129ff7eb96bb6e65996f1185`: 67 core tests pass on each OS, four Windows integrations pass, and packaged native desktop smoke passes. `filters-navigation.txt` verifies non-everyday media visibility, filtered counts, chip removal, Reset and consolidated navigation; the script also opens Timeline and checks pinned Settings/Storage visibility. Existing gallery, offline, reconnect, memories and management checks pass. Light/dark screenshots were inspected. Merged through [PR #11](https://github.com/smile-plzz/Luma/pull/11). See TESTING_HANDOFF.md for the exact package and checksum.
+[Run 38260963380](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38260963380), source `35103a06e88f85a2129ff7eb96bb6e65996f1185`: 67 core tests pass on each OS, four Windows integrations pass, and packaged native desktop smoke passes. `filters-navigation.txt` verifies non-everyday media visibility, filtered counts, chip removal, Reset and consolidated navigation; the script also opens Timeline and checks pinned Settings/Storage visibility. Existing gallery, offline, reconnect, memories and management checks pass. Light/dark screenshots were inspected. Merged through [PR #11](https://github.com/smile-plzz/Luma-windows-software/pull/11). See TESTING_HANDOFF.md for the exact package and checksum.
 
 ## v0.2.0 verified management shipment
 
-[Run 38215576271](https://github.com/smile-plzz/Luma/actions/runs/38215576271), source `3119f225944b9362b21c8e97383ad33ce16de2d7`: 63 core tests pass on each OS, four Windows integrations pass and native desktop smoke passes. `management.txt` confirms source manager actions, removal cancellation and confirmation, updated album counts, all-source refresh, repair, rebuild, Activity and unused-preview cleanup. The package and compiled XAML resources passed publication checks; the screenshot was inspected. PR #10 is merged at `106dcb700b58a5ae663b0648b2dc58e83e2f3d53`. See TESTING_HANDOFF.md for the release and checksum.
+[Run 38215576271](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38215576271), source `3119f225944b9362b21c8e97383ad33ce16de2d7`: 63 core tests pass on each OS, four Windows integrations pass and native desktop smoke passes. `management.txt` confirms source manager actions, removal cancellation and confirmation, updated album counts, all-source refresh, repair, rebuild, Activity and unused-preview cleanup. The package and compiled XAML resources passed publication checks; the screenshot was inspected. PR #10 is merged at `106dcb700b58a5ae663b0648b2dc58e83e2f3d53`. See TESTING_HANDOFF.md for the release and checksum.
 
 ## Previous shipment: indexing recovery and memories
 
-[Run 38168157835](https://github.com/smile-plzz/Luma/actions/runs/38168157835), source `ef23349e82723c98636f9e3a6acad5d7c210f135`: all jobs passed. 58 core cases passed on each of Windows and Linux; four Windows integration tests and the native desktop smoke passed. `memories.txt` verifies capture-date browsing while offline; `reconnect.txt` verifies preserved selection/scroll without indexing. Light/dark screenshots were inspected. PR #9 is merged at `ab08a6c67faf894d09dce5a7a1feddd8b5a90d5e`; its source tree matches the tested commit. See [the handoff](TESTING_HANDOFF.md) for the ZIP and checksum.
+[Run 38168157835](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38168157835), source `ef23349e82723c98636f9e3a6acad5d7c210f135`: all jobs passed. 58 core cases passed on each of Windows and Linux; four Windows integration tests and the native desktop smoke passed. `memories.txt` verifies capture-date browsing while offline; `reconnect.txt` verifies preserved selection/scroll without indexing. Light/dark screenshots were inspected. PR #9 is merged at `ab08a6c67faf894d09dce5a7a1feddd8b5a90d5e`; its source tree matches the tested commit. See [the handoff](TESTING_HANDOFF.md) for the ZIP and checksum.
 
 ## Earlier reconnect shipment
 
-[Run 38151631336](https://github.com/smile-plzz/Luma/actions/runs/38151631336), commit `4e31cf2d0b6473a4dc51fdbc4cada0915912cb17`: all jobs passed. 51 core cases pass on each of Windows and Linux, four Windows integrations pass, and the complete desktop smoke passes. Its reconnect evidence verifies selection and scroll retention and no silent discovery of a new file. PR #8 is merged. See [the current handoff](TESTING_HANDOFF.md) for the verified ZIP.
+[Run 38151631336](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38151631336), commit `4e31cf2d0b6473a4dc51fdbc4cada0915912cb17`: all jobs passed. 51 core cases pass on each of Windows and Linux, four Windows integrations pass, and the complete desktop smoke passes. Its reconnect evidence verifies selection and scroll retention and no silent discovery of a new file. PR #8 is merged. See [the current handoff](TESTING_HANDOFF.md) for the verified ZIP.
 
 ## UI refinement shipment
 
-[Run 38114261821](https://github.com/smile-plzz/Luma/actions/runs/38114261821), commit `55df818d8e0c2234681af2eb6962e735e2d90689`: all jobs passed. 49 core tests pass on Windows and Linux, four Windows integration cases pass, and the packaged desktop passes the complete UI smoke including theme switching. PR #7 is merged. Light/dark screenshots were inspected; physical-drive confirmation of the reported import issue remains pending.
+[Run 38114261821](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38114261821), commit `55df818d8e0c2234681af2eb6962e735e2d90689`: all jobs passed. 49 core tests pass on Windows and Linux, four Windows integration cases pass, and the packaged desktop passes the complete UI smoke including theme switching. PR #7 is merged. Light/dark screenshots were inspected; physical-drive confirmation of the reported import issue remains pending.
 
 ## Original gallery shipment
 
-[Run 38077921235](https://github.com/smile-plzz/Luma/actions/runs/38077921235), commit `6b94e38c5e4ee4cc0112419fc4b28a3fe6450173`: all jobs passed. 47 core cases pass on each of Windows and Linux; four Windows integration cases pass; self-contained publishing, compiled XAML resources and native UI smoke pass. This code is merged through PR #6. The [testing handoff](TESTING_HANDOFF.md) links the exact ZIP and evidence.
+[Run 38077921235](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38077921235), commit `6b94e38c5e4ee4cc0112419fc4b28a3fe6450173`: all jobs passed. 47 core cases pass on each of Windows and Linux; four Windows integration cases pass; self-contained publishing, compiled XAML resources and native UI smoke pass. This code is merged through PR #6. The [testing handoff](TESTING_HANDOFF.md) links the exact ZIP and evidence.
 
 The 260-fixture native run peaked at 58 decoded images and restored 170px thumbnail size with filenames hidden after restart. Offline preparation reported 260/260 saved previews. These are synthetic functional checks, not physical-drive or full-library performance certification.
 
@@ -73,7 +73,7 @@ Consult the latest run linked from the pull request for the result of the exact 
 
 ## Verified Phase 1 run
 
-[Run 37933213641](https://github.com/smile-plzz/Luma/actions/runs/37933213641), commit `790c8625a364054511a72d09c9ba2ea4a516d785`: all jobs passed. 20 core tests pass on each of Windows and Linux; both Windows integration tests pass; the self-contained desktop build and populated-library UI Automation smoke test pass. The `Luma-Phase1-win-x64` ZIP and desktop screenshot/control evidence are attached to that run.
+[Run 37933213641](https://github.com/smile-plzz/Luma-windows-software/actions/runs/37933213641), commit `790c8625a364054511a72d09c9ba2ea4a516d785`: all jobs passed. 20 core tests pass on each of Windows and Linux; both Windows integration tests pass; the self-contained desktop build and populated-library UI Automation smoke test pass. The `Luma-Phase1-win-x64` ZIP and desktop screenshot/control evidence are attached to that run.
 
 ## Phase 2 coverage and acceptance
 
@@ -120,7 +120,7 @@ Native smoke selects September 2026, verifies its 29-item fixture count, visits 
 
 Bench acceptance: upgrade a backed-up real catalog while Luma is closed; compare date grouping against known photo dates; browse small and large months; test Ctrl/Shift selection and the simple Select mode; paste copies into a disposable Explorer folder. Measure time to first usable gallery, warm month switching and scrolling on the 200,000-item library. Pause and resume both discovery and date reading. Note HDD model, connection, file types, collection/folder counts and cache state. Do not compare synthetic SQLite timings with an initial physical-drive scan.
 
-Verified v0.4.0: [run 38307725690](https://github.com/smile-plzz/Luma/actions/runs/38307725690), source `a1c03b8323e5b80644b090bf69da88ffec92ae64`, merged through PR #12. 71 core tests on each OS, four Windows integrations, packaged XAML and native desktop checks passed. The exact package is identified in TESTING_HANDOFF.md.
+Verified v0.4.0: [run 38307725690](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38307725690), source `a1c03b8323e5b80644b090bf69da88ffec92ae64`, merged through PR #12. 71 core tests on each OS, four Windows integrations, packaged XAML and native desktop checks passed. The exact package is identified in TESTING_HANDOFF.md.
 
 ## Exclusions and packaging update
 

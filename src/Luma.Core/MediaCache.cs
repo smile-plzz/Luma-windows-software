@@ -53,6 +53,48 @@ public sealed partial class MediaCache(string databasePath, ISourceResolver? sou
         catch { }
     }
 
+    public async Task CreateBackupAsync(string targetPath, CancellationToken ct = default)
+    {
+        if (!File.Exists(databasePath)) return;
+        await CheckpointAsync(ct);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(targetPath))!);
+        File.Copy(databasePath, targetPath, true);
+    }
+
+    public async Task<bool> RestoreBackupAsync(string backupPath, CancellationToken ct = default)
+    {
+        if (!File.Exists(backupPath)) return false;
+        try
+        {
+            await using (var testConn = new SqliteConnection($"Data Source={backupPath};Mode=ReadOnly"))
+            {
+                await testConn.OpenAsync(ct);
+                await using var testCmd = testConn.CreateCommand();
+                testCmd.CommandText = "PRAGMA quick_check(100);";
+                var check = Convert.ToString(await testCmd.ExecuteScalarAsync(ct));
+                if (!string.Equals(check, "ok", StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            SqliteConnection.ClearAllPools();
+            var safetyArchive = Path.Combine(Path.GetDirectoryName(databasePath)!, $"catalog-pre-restore-{DateTime.UtcNow:yyyyMMddHHmmss}.db");
+            if (File.Exists(databasePath)) File.Copy(databasePath, safetyArchive, true);
+
+            File.Copy(backupPath, databasePath, true);
+            var wal = databasePath + "-wal";
+            var shm = databasePath + "-shm";
+            if (File.Exists(wal)) File.Delete(wal);
+            if (File.Exists(shm)) File.Delete(shm);
+
+            await InitializeAsync(ct);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<bool> RepairCatalogAsync(CancellationToken ct = default)
     {
         try

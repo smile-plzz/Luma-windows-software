@@ -409,13 +409,29 @@ public sealed partial class MainWindow : Window
         ToolTipService.SetToolTip(remember,"Restore your last source, folder, filters, month and visible item. Turn off to start fresh.");
         panel.Children.Add(remember); panel.Children.Add(theme); panel.Children.Add(budget); panel.Children.Add(new TextBlock { Text = "Thumbnails and metadata are saved on this PC. Old thumbnails are removed when the cache fills, including thumbnails from offline drives.", TextWrapping = TextWrapping.Wrap, MaxWidth = 400 });
         var dialog = new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = "Settings", Content = panel, PrimaryButtonText = "Save", CloseButtonText = "Cancel" };
-        bool storage=false,exclusions=false;
-        panel.Children.Add(Description("Luma · Your memories, beautifully within reach.\nVersion 0.6.0 · Windows portable"));
+        bool storage=false,exclusions=false,manageTags=false,findDuplicates=false,backupCatalog=false,restoreCatalog=false,copyDiagnostics=false,checkUpdates=false;
+        panel.Children.Add(Description("Luma · Your memories, beautifully within reach.\nVersion 0.7.0 · Windows portable"));
         panel.Children.Add(ActionButton("Manage exclusions…",()=> { exclusions=true; dialog.Hide(); }));
         panel.Children.Add(ActionButton("Storage & previews",()=> { storage=true; dialog.Hide(); }));
+        panel.Children.Add(ActionButton("Manage tags…",()=> { manageTags=true; dialog.Hide(); }));
+        panel.Children.Add(ActionButton("Find duplicates…",()=> { findDuplicates=true; dialog.Hide(); }));
+        panel.Children.Add(ActionButton("Back up catalog…",()=> { backupCatalog=true; dialog.Hide(); }));
+        panel.Children.Add(ActionButton("Restore catalog from backup…",()=> { restoreCatalog=true; dialog.Hide(); }));
+        panel.Children.Add(ActionButton("Copy diagnostic info",()=> { copyDiagnostics=true; dialog.Hide(); }));
+        panel.Children.Add(ActionButton("Check for updates",()=> { checkUpdates=true; dialog.Hide(); }));
         var result=await dialog.ShowAsync();
         if(storage) { await OpenStorage(); return; }
         if(exclusions) { await OpenExclusions(); return; }
+        if(manageTags) { await OpenTagManager(); return; }
+        if(findDuplicates) { await OpenDuplicatesFinder(); return; }
+        if(backupCatalog) { await BackupCatalogAction(); return; }
+        if(restoreCatalog) { await RestoreCatalogAction(); return; }
+        if(copyDiagnostics) { await CopyDiagnosticInfo(); return; }
+        if(checkUpdates)
+        {
+            try { Process.Start(new ProcessStartInfo("https://github.com/smile-plzz/Luma-windows-software/releases/latest") { UseShellExecute = true }); } catch { }
+            return;
+        }
         if (result != ContentDialogResult.Primary) return;
         settings.Theme = theme.SelectedItem?.ToString() ?? "Default"; settings.CacheGiB = double.IsNaN(budget.Value) ? 2 : (int)Math.Clamp(budget.Value, 1, 32);
         settings.RememberPlace=remember.IsChecked==true; if(!settings.RememberPlace)settings.Place=null;
@@ -432,4 +448,230 @@ public sealed partial class MainWindow : Window
     private async void DeleteShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e) { if (HandleShortcut(e)) await Guard(Delete, true); }
     private async void RenameShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e) { if (HandleShortcut(e)) await Guard(Rename, true); }
     private void SelectShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e) { if (HandleShortcut(e)) { MediaGrid.SelectAll(); Notify($"Selected {cards.Count:N0} loaded items. Use Select all matching results in the context menu for the entire result set."); } }
+    private void SearchShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e)
+    {
+        if (HandleShortcut(e)) { SearchBox.Focus(FocusState.Programmatic); SearchBox.SelectAll(); }
+    }
+    private async void RefreshShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e)
+    {
+        if (HandleShortcut(e)) await Guard(RescanCurrent, true);
+    }
+    private async void OpenShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e)
+    {
+        if (HandleShortcut(e)) await Guard(Open);
+    }
+    private void EscapeShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e)
+    {
+        if (PreviewOverlay.Visibility == Visibility.Visible)
+        {
+            DoClosePreview();
+            e.Handled = true;
+        }
+        else if (MediaGrid.SelectedItems.Count > 0)
+        {
+            MediaGrid.SelectedItems.Clear();
+            e.Handled = true;
+        }
+    }
+
+    private async Task CopyDiagnosticInfo()
+    {
+        var sources = await Task.Run(() => catalog.SourcesAsync());
+        var sourceCounts = await catalog.SourceCountsAsync();
+        var cacheBytes = cache is null ? 0 : (await cache.SnapshotAsync()).Bytes;
+        var driveLetter = Path.GetPathRoot(AppSettings.LocalRoot);
+        long freeBytes = 0;
+        try
+        {
+            if (!string.IsNullOrEmpty(driveLetter))
+            {
+                var dInfo = new DriveInfo(driveLetter);
+                freeBytes = dInfo.AvailableFreeSpace;
+            }
+        }
+        catch { }
+
+        string lastError = "None";
+        var errPath = Path.Combine(AppSettings.LocalRoot, "last-error.txt");
+        if (File.Exists(errPath))
+        {
+            try { lastError = PathRedactor.Redact(File.ReadAllText(errPath)); } catch { }
+        }
+
+        var report = new
+        {
+            Application = "Luma",
+            Version = "0.7.0",
+            OSVersion = Environment.OSVersion.ToString(),
+            Architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(),
+            DotNetRuntime = Environment.Version.ToString(),
+            RegisteredSources = sources.Count,
+            TotalCatalogItems = sourceCounts.Values.Sum(),
+            ThumbnailCacheLimitGiB = settings.CacheGiB,
+            ThumbnailCacheUsedMB = Math.Round(cacheBytes / (1024.0 * 1024.0), 2),
+            SystemDriveFreeMB = Math.Round(freeBytes / (1024.0 * 1024.0), 2),
+            LastError = lastError
+        };
+
+        var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
+        var data = new DataPackage();
+        data.SetText(json);
+        Clipboard.SetContent(data);
+        Clipboard.Flush();
+        Notify("Diagnostic details copied to clipboard (all paths redacted).");
+    }
+
+    private async Task BackupCatalogAction()
+    {
+        var backupDir = Path.Combine(AppSettings.LocalRoot, "backups");
+        Directory.CreateDirectory(backupDir);
+        var backupFile = Path.Combine(backupDir, $"catalog-backup-{DateTime.UtcNow:yyyyMMddHHmmss}.db");
+        await catalog.CreateBackupAsync(backupFile);
+        Notify($"Catalog backup saved to backups\\{Path.GetFileName(backupFile)}.");
+    }
+
+    private async Task RestoreCatalogAction()
+    {
+        var picker = new FileOpenPicker();
+        picker.FileTypeFilter.Add(".db");
+        picker.FileTypeFilter.Add(".bak");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, Handle);
+        var file = await picker.PickSingleFileAsync();
+        if (file is null) return;
+
+        if (!await Confirm("Restore catalog from backup?", $"Restoring from {file.Name} will replace your current catalog. An automatic safety backup will be created first.", "Restore")) return;
+
+        var restored = await catalog.RestoreBackupAsync(file.Path);
+        if (restored)
+        {
+            await LoadSources();
+            await LoadAlbums();
+            await Refresh();
+            Notify($"Catalog successfully restored from {file.Name}.");
+        }
+        else
+        {
+            Notify("The selected backup file is invalid or corrupt.", true);
+        }
+    }
+
+    private async Task OpenTagManager()
+    {
+        var tags = await catalog.GetTagsWithCountsAsync();
+        var panel = new StackPanel { Spacing = 12, MinWidth = 380 };
+        var list = new ListView { ItemsSource = tags, MaxHeight = 280, SelectionMode = ListViewSelectionMode.Single };
+        list.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+            <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+                <Grid Padding="4,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Tag}" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Column="1" Text="{Binding Count}" Opacity="0.6"/>
+                </Grid>
+            </DataTemplate>
+            """);
+
+        panel.Children.Add(Description("Rename, merge, or delete tags across your library."));
+        panel.Children.Add(list);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        panel.Children.Add(actions);
+
+        var dialog = new ContentDialog { RequestedTheme = Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = "Tag Manager", Content = panel, CloseButtonText = "Close" };
+
+        Func<Task>? pending = null;
+        actions.Children.Add(ActionButton("Rename / Merge", () =>
+        {
+            if (list.SelectedItem is TagCount tc)
+            {
+                pending = async () =>
+                {
+                    var newName = await Prompt("Rename Tag", $"Rename '{tc.Tag}' (entering an existing tag name will merge them):", tc.Tag);
+                    if (!string.IsNullOrWhiteSpace(newName) && newName != tc.Tag)
+                    {
+                        await catalog.RenameTagAsync(tc.Tag, newName);
+                        await Refresh();
+                        Notify($"Tag '{tc.Tag}' renamed to '{newName}'.");
+                    }
+                };
+                dialog.Hide();
+            }
+        }));
+
+        actions.Children.Add(ActionButton("Delete Tag", () =>
+        {
+            if (list.SelectedItem is TagCount tc)
+            {
+                pending = async () =>
+                {
+                    if (await Confirm("Delete tag?", $"Remove tag '{tc.Tag}' from {tc.Count} items?", "Delete"))
+                    {
+                        await catalog.DeleteTagAsync(tc.Tag);
+                        await Refresh();
+                        Notify($"Tag '{tc.Tag}' removed.");
+                    }
+                };
+                dialog.Hide();
+            }
+        }));
+
+        await dialog.ShowAsync();
+        if (pending is not null) await pending();
+    }
+
+    private async Task OpenDuplicatesFinder()
+    {
+        Notify("Scanning for duplicate files by size and hash…");
+        var duplicates = await Task.Run(() => catalog.FindDuplicatesAsync(SelectedSource));
+        if (duplicates.Count == 0)
+        {
+            Notify("No duplicate files found in the current scope.");
+            return;
+        }
+
+        var panel = new StackPanel { Spacing = 14, MinWidth = 440 };
+        panel.Children.Add(Description($"Found {duplicates.Count:N0} sets of exact duplicate files ({duplicates.Sum(d => d.FileLength * (d.Items.Count - 1)) / (1024.0 * 1024.0):N1} MB potential reclaimed space). Choose an item to reveal in Explorer."));
+
+        var scroll = new ScrollViewer { MaxHeight = 360 };
+        var groupList = new StackPanel { Spacing = 12 };
+        scroll.Content = groupList;
+        panel.Children.Add(scroll);
+
+        var dialog = new ContentDialog { RequestedTheme = Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = "Duplicates Finder", Content = panel, CloseButtonText = "Close" };
+
+        foreach (var group in duplicates.Take(50))
+        {
+            var box = new Border { Background = (Brush)Application.Current.Resources["LumaControl"], CornerRadius = new CornerRadius(8), Padding = new Thickness(10) };
+            var boxContent = new StackPanel { Spacing = 6 };
+            boxContent.Children.Add(new TextBlock { Text = $"Size: {group.FormattedSize} · {group.Items.Count} copies", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+
+            foreach (var item in group.Items)
+            {
+                var row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var pathText = new TextBlock { Text = item.RelativePath, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 12, Opacity = 0.85 };
+                Grid.SetColumn(pathText, 0);
+                row.Children.Add(pathText);
+
+                var revealBtn = new Button { Content = "Reveal", FontSize = 11, Padding = new Thickness(6, 2, 6, 2) };
+                revealBtn.Click += (_, _) =>
+                {
+                    try { ShellFiles.RevealInExplorer(Resolve(item)); } catch (Exception ex) { Notify(ex.Message, true); }
+                };
+                Grid.SetColumn(revealBtn, 1);
+                row.Children.Add(revealBtn);
+
+                boxContent.Children.Add(row);
+            }
+
+            box.Child = boxContent;
+            groupList.Children.Add(box);
+        }
+
+        await dialog.ShowAsync();
+    }
 }

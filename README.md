@@ -1,23 +1,56 @@
 # Luma
 
-**[Download Luma for Windows](https://github.com/smile-plzz/Luma/releases/latest/download/Luma-v0.6.0-win-x64.zip)** · [Release notes](https://github.com/smile-plzz/Luma/releases/latest)
+**[Download Luma for Windows](https://github.com/smile-plzz/Luma-windows-software/releases/latest/download/Luma-v0.7.0-win-x64.zip)** · [Release notes](https://github.com/smile-plzz/Luma-windows-software/releases/latest)
 
-A native Windows media library for existing folders and drives. Browse photos and videos, organize favorites and tags, and open originals in your default apps.
+A native Windows media library for existing folders and drives. Browse photos and videos, organize favorites and tags, find duplicates, preview instantly with Spacebar, and open originals in your default apps.
 
-Development of the portable gallery milestone is complete and merged into `main`. Luma is now in real-life testing and everyday-use evaluation; the current shipment includes the UI refinement, import-lock correction and cached-drive reconnect optimization from PRs #7 and #8, plus resumable indexing and On this day memories from PR #9. Source management, explicit refresh scopes, preview repair/rebuild, storage cleanup and Activity shipped in v0.2.0. The v0.3.0 update shows all supported formats by default, exposes removable filters and filtered counts, makes Reset complete, and simplifies navigation and maintenance. The v0.4.0 update adds month navigation with counts, simple multi-file Select mode, and large-library indexing and browsing optimizations. The v0.5.0 update adds reversible source, folder and file-type exclusions, scan filtering and original Windows executable branding. See the [performance measurements](docs/PERFORMANCE.md). Start with the [testing handoff](docs/TESTING_HANDOFF.md) for the verified shipment, setup and feedback checklist.
+---
 
-## Run the Windows app
+## 3-Step Quick Start
 
-1. Open the [verified Windows download](https://github.com/smile-plzz/Luma/releases/latest) in **Releases**.
-2. Download the **Luma-v0.6.0-win-x64.zip** under Assets. The automatically generated Source code archives do not contain the EXE.
-3. Extract the entire ZIP to a writable folder and run **Luma.App.exe**. Keep the bundled files beside the executable.
-4. Select **Add folder or drive**. Browse the indexed media; thumbnails are cached as you browse.
+1. **Download:** Grab the latest `Luma-v0.7.0-win-x64.zip` from [Releases](https://github.com/smile-plzz/Luma-windows-software/releases/latest).
+2. **Extract:** Unzip to any writable folder and run `Luma.App.exe`.
+3. **Add media:** Click **Add folder or drive** (or drag and drop a folder onto the window) to start browsing immediately.
 
-Windows 10 version 2004+ or Windows 11, x64. The portable build bundles .NET and Windows App SDK dependencies. It is unsigned, so Windows may show its usual downloaded-app warning. There is no installer or store package yet.
+Windows 10 version 2004+ or Windows 11, x64. The portable build bundles .NET and Windows App SDK dependencies.
 
-The **v0.6.0 final refinement** remembers your browsing position, explains discovery and metadata progress, and adds contextual help and consistent dialog themes. The planned development milestone is closed; future changes follow real-use feedback. [Final experience guide](docs/FINAL_EXPERIENCE.md).
+---
 
-## What works
+## What works in v0.7.0
+
+- **Spacebar Quick Preview:** Press Spacebar on any photo or video for an immediate, read-only preview overlay with zoom, pan, and metadata sidebar.
+- **Tag Manager:** View all tags with item counts, rename or merge tags across the library, and delete unused tags in Settings.
+- **Duplicates Finder:** Fast, read-only duplicate detection grouping identical files by exact size and content hash, with per-group Explorer reveal.
+- **Smart Collections:** Save dynamic search criteria and filter rules in the local catalog.
+- **Advanced Search:** Filter using `tag:`, `ext:`, and `year:` search prefixes (e.g., `sunset tag:vacation ext:jpg year:2024`).
+- **External Move Reconciliation:** Re-link catalog organization and tags when files are moved in Windows Explorer.
+- **Diagnostics & Backup:** One-click "Copy diagnostic info" (with path redaction) and manual catalog backup/restore in Settings.
+- **Library exclusions**: Right-click to hide a folder, whole source, or file extension, skip it during scans, and restore it without losing organization. [Exclusion guide](docs/EXCLUSIONS.md).
+- **Manage sources**: Browse, rename, refresh/resume, or remove a source without deleting original files.
+- **Storage & previews**: Scoped coverage, missing-preview repair, safe rebuild, clearing, and confirmed unused-preview cleanup.
+- **Activity monitor**: Live progress, pause/cancel, saved indexing checkpoints, and recent results.
+- **Offline honesty**: Cached hits never probe an unplugged drive. Volume GUID tracking resolves drive-letter changes automatically upon reconnect.
+- **Originals are sacred**: Scanning and indexing are strictly read-only. File moves and copies stream to atomic sibling files before committing. Deletions route through the native Windows Recycle Bin.
+
+---
+
+## Frequently Asked Questions (FAQ)
+
+### Why does Windows show a SmartScreen warning?
+Luma is an open-source, community-distributed app without an expensive commercial code-signing certificate. Windows Defender SmartScreen may display "Windows protected your PC". Click **More info**, then **Run anyway** to launch the app safely.
+
+### Why do some HEIC photos show an icon instead of a thumbnail?
+Windows requires the official Microsoft Store "HEIF Image Extensions" to decode iPhone HEIC photos. When absent, Luma shows a placeholder with a direct link to install the extension from the Microsoft Store.
+
+### Can I browse when my external hard drive is unplugged?
+Yes! Luma saves thumbnails and metadata to your local drive. You can browse, search, favorite, tag, and inspect metadata while your drive is disconnected. Reconnecting the drive immediately restores the ability to open, copy, or rename originals.
+
+### Where is Luma data stored?
+All database catalogs, settings, and cached thumbnails live in `%LOCALAPPDATA%\Luma` on your PC. Your original photos and videos remain on their source drives and are never modified by scans.
+
+### How do I reset or uninstall Luma?
+- To reset your library: Close Luma and delete the `%LOCALAPPDATA%\Luma` folder.
+- To uninstall: Simply delete the folder where you extracted `Luma-win-x64`. No registry keys or background services are left behind.
 
 - **Library exclusions**: right-click to hide a folder, whole source or file extension, skip it during scans, and restore it without losing organization. [Exclusion guide](docs/EXCLUSIONS.md).
 - Original app icon and Windows executable branding. [Identity and icon source](docs/BRANDING.md).

@@ -40,6 +40,9 @@ public sealed partial class MediaCache
         AND ($favorites=0 OR a.favorite=1)
         AND ($memoryDay IS NULL OR (d.taken_ticks IS NOT NULL AND luma_memory(d.taken_ticks)=1))
         AND ($search='' OR m.relative_path LIKE $search ESCAPE '\' OR a.tags LIKE $search ESCAPE '\')
+        AND ($tagFilter='' OR a.tags LIKE $tagFilter ESCAPE '\')
+        AND ($extFilter='' OR lower(m.relative_path) LIKE $extFilter ESCAPE '\')
+        AND ($yearFilter=0 OR luma_year(coalesce(d.taken_ticks, m.modified_ticks))=$yearFilter)
         AND ($folder='' OR m.relative_path LIKE $folder ESCAPE '\')
         AND ($recursive=1 OR instr(substr(m.relative_path,length($prefix)+1),$separator)=0)
         AND ($album IS NULL OR EXISTS(SELECT 1 FROM album_items ai WHERE ai.media_id=i.id AND ai.album_id=$album))
@@ -60,6 +63,40 @@ public sealed partial class MediaCache
         var index=query.Descending==false ? "ix_browse_dates_asc" : "ix_browse_dates_desc";
         return GalleryFrom.Replace("FROM media m",$"FROM browse_dates b INDEXED BY {index} CROSS JOIN media m ON m.source_id=b.source_id AND m.relative_path=b.relative_path");
     }
+    private static (string Text, string Tag, string Ext, int Year) ParseSearch(string search)
+    {
+        var raw = search.Trim();
+        if (string.IsNullOrWhiteSpace(raw)) return ("", "", "", 0);
+
+        var tokens = raw.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var textTokens = new List<string>();
+        string tag = "";
+        string ext = "";
+        int year = 0;
+
+        foreach (var token in tokens)
+        {
+            if (token.StartsWith("tag:", StringComparison.OrdinalIgnoreCase) && token.Length > 4)
+            {
+                tag = token[4..];
+            }
+            else if (token.StartsWith("ext:", StringComparison.OrdinalIgnoreCase) && token.Length > 4)
+            {
+                ext = token[4..].TrimStart('.');
+            }
+            else if (token.StartsWith("year:", StringComparison.OrdinalIgnoreCase) && int.TryParse(token[5..], out var y))
+            {
+                year = y;
+            }
+            else
+            {
+                textTokens.Add(token);
+            }
+        }
+
+        return (string.Join(" ", textTokens), tag, ext, year);
+    }
+
     private static void QueryParameters(SqliteCommand cmd, LibraryQuery query)
     {
         var reference=query.MemoriesOn.GetValueOrDefault();
@@ -69,13 +106,24 @@ public sealed partial class MediaCache
             var taken = new DateTime(ticks.Value,DateTimeKind.Utc).ToLocalTime();
             return taken.Year < reference.Year && taken.Month == reference.Month && taken.Day == reference.Day;
         });
+        cmd.Connection!.CreateFunction<long?,int>("luma_year", ticks =>
+        {
+            if (ticks is null || ticks.Value < DateTime.MinValue.Ticks || ticks.Value > DateTime.MaxValue.Ticks) return 0;
+            return new DateTime(ticks.Value, DateTimeKind.Utc).ToLocalTime().Year;
+        }, isDeterministic: true);
         cmd.Parameters.AddWithValue("$memoryDay", (object?)query.MemoriesOn?.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture) ?? DBNull.Value);
         static string Escape(string value) => value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
         var prefix = query.Folder.Length == 0 ? "" : query.Folder.TrimEnd('\\','/') + Path.DirectorySeparatorChar;
         cmd.Parameters.AddWithValue("$source",(object?)query.SourceId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$kind",(object?)query.Kind ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$favorites",query.FavoritesOnly ? 1 : 0);
-        cmd.Parameters.AddWithValue("$search",query.Search.Trim().Length == 0 ? "" : "%" + Escape(query.Search.Trim()) + "%");
+
+        var (parsedText, parsedTag, parsedExt, parsedYear) = ParseSearch(query.Search);
+        cmd.Parameters.AddWithValue("$search", parsedText.Length == 0 ? "" : "%" + Escape(parsedText) + "%");
+        cmd.Parameters.AddWithValue("$tagFilter", parsedTag.Length == 0 ? "" : "%" + Escape(parsedTag) + "%");
+        cmd.Parameters.AddWithValue("$extFilter", parsedExt.Length == 0 ? "" : "%." + Escape(parsedExt));
+        cmd.Parameters.AddWithValue("$yearFilter", parsedYear);
+
         cmd.Parameters.AddWithValue("$folder",prefix.Length == 0 ? "" : Escape(prefix) + "%");
         cmd.Parameters.AddWithValue("$prefix",prefix); cmd.Parameters.AddWithValue("$separator",Path.DirectorySeparatorChar.ToString());
         cmd.Parameters.AddWithValue("$recursive",query.IncludeDescendants ? 1 : 0);

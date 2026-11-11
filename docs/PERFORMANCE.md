@@ -16,11 +16,11 @@ Measurements gathered on Windows 11 with 8 logical cores using `Luma.Benchmarks`
 
 ## v0.6.0 saved-position check
 
-[Run 38355699422](https://github.com/smile-plzz/Luma/actions/runs/38355699422), source `f655715982253824c41329425c181c8876d9f3d5`, correctly located a middle anchor in 200,000 records in **574.92 ms** on the Windows runner. First 120 records: 35.09 ms; continuation: 0.70 ms; month breakdown: 461.89 ms. These are single-run catalog-only timings, not physical HDD or full UI measurements. Reopening loads at most an initial 120-record window around the anchor, with earlier items available explicitly. [Raw result](performance/windows-v0.6.0-200000.json).
+[Run 38355699422](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38355699422), source `f655715982253824c41329425c181c8876d9f3d5`, correctly located a middle anchor in 200,000 records in **574.92 ms** on the Windows runner. First 120 records: 35.09 ms; continuation: 0.70 ms; month breakdown: 461.89 ms. These are single-run catalog-only timings, not physical HDD or full UI measurements. Reopening loads at most an initial 120-record window around the anchor, with earlier items available explicitly. [Raw result](performance/windows-v0.6.0-200000.json).
 
 ## v0.5.0 validation
 
-[Run 38350255657](https://github.com/smile-plzz/Luma/actions/runs/38350255657), source `b7d9eb16cc3547c64928e8fbdc202b7e0a400083`, exercises 200,000 catalog records with the exclusion-aware query implementation and no active rules.
+[Run 38350255657](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38350255657), source `b7d9eb16cc3547c64928e8fbdc202b7e0a400083`, exercises 200,000 catalog records with the exclusion-aware query implementation and no active rules.
 
 | Environment | First 120 records and count | Next page | Month breakdown |
 | --- | ---: | ---: | ---: |
@@ -31,7 +31,7 @@ Measurements gathered on Windows 11 with 8 logical cores using `Luma.Benchmarks`
 
 ## v0.4.0 reference measurements
 
-Measured in [run 38307725690](https://github.com/smile-plzz/Luma/actions/runs/38307725690), source `a1c03b8323e5b80644b090bf69da88ffec92ae64`. Fixture: 200,000 synthetic SQLite records, four runner processors, 120 items per page. These are single-run measurements, not percentiles or a physical-drive benchmark.
+Measured in [run 38307725690](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38307725690), source `a1c03b8323e5b80644b090bf69da88ffec92ae64`. Fixture: 200,000 synthetic SQLite records, four runner processors, 120 items per page. These are single-run measurements, not percentiles or a physical-drive benchmark.
 
 | Environment | First page including count | Next page, count reused | Month breakdown | Previous capture-sort expression only |
 | --- | ---: | ---: | ---: | ---: |

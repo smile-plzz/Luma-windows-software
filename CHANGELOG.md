@@ -12,6 +12,27 @@ The format is based on Keep a Changelog. Plain language, no em-dashes.
 - Packaging: Per-user installer (Inno Setup / WiX), automated CI release pipeline, winget and Scoop manifests, code signing integration.
 - Verification: Independent verification sign-off across all release candidates.
 
+## [0.7.0] - 2026-11-11
+
+### Added
+- Quick preview overlay triggered by Spacebar or Enter with zoom, pan, and metadata sidebar.
+- Tag Manager in Settings allowing users to rename, merge, delete, and view counts for all tags.
+- Read-only Duplicates Finder detecting identical media by file size and content hash, with per-group Explorer reveal.
+- Smart Collections infrastructure supporting saved dynamic queries in the local catalog.
+- Advanced Search operators supporting `tag:`, `ext:`, and `year:` filter prefixes.
+- External move reconciliation detecting files moved outside Luma and re-linking tags, favorites, and albums.
+- Diagnostic info copy action in Settings producing sanitized, path-redacted system metrics.
+- Manual catalog backup and restore actions in Settings with automatic pre-action rolling backups.
+- Low disk space safeguard (DiskGuard) proactively preventing thumbnail creation when system free space falls below 500 MB.
+- Inno Setup per-user non-admin installer script (`scripts/Luma-Installer.iss`).
+- Benchmark harness (`Luma.Benchmarks`) verifying query performance from 1,000 to 500,000 records.
+
+### Changed
+- Mitigated intermittent WinUI 3 XAML refresh crash (0xc000027b) via strict `galleryGate` SemaphoreSlim synchronization.
+- Settings file resilience: damaged settings files fallback cleanly to defaults and preserve a `.corrupt` copy.
+- Unhandled exceptions write sanitized, path-redacted crash reports to `last-error.txt` and `last-error.json`.
+- All repository and download links updated to canonical repository `https://github.com/smile-plzz/Luma-windows-software`.
+
 ## [0.6.0] - 2026-10-13
 
 ### Added
