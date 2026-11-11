@@ -15,7 +15,6 @@
    <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="SearchShortcut"/><KeyboardAccelerator Key="B" Modifiers="Control" Invoked="ToggleSidebarShortcut"/><KeyboardAccelerator Key="H" Modifiers="Control" Invoked="ToggleHeaderShortcut"/>
    <KeyboardAccelerator Key="Left" Modifiers="Menu" Invoked="BackHistoryShortcut"/><KeyboardAccelerator Key="Home" Invoked="ScrollTopShortcut"/><KeyboardAccelerator Key="End" Invoked="ScrollBottomShortcut"/>
    <KeyboardAccelerator Key="F5" Invoked="RefreshShortcut"/><KeyboardAccelerator Key="Enter" Invoked="OpenShortcut"/><KeyboardAccelerator Key="Escape" Invoked="EscapeShortcut"/>
-   <KeyboardAccelerator Key="Space" Invoked="SpacePreviewShortcut"/>
   </Grid.KeyboardAccelerators>
   <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="224"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
 
@@ -194,7 +193,7 @@
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
 
     <!-- Uniform Grid View (Default) -->
-    <GridView x:Name="MediaGrid" AutomationProperties.AutomationId="MediaGrid" SelectionMode="Extended" IsSynchronizedWithCurrentItem="False" IsItemClickEnabled="False" DoubleTapped="GridDoubleTapped" SelectionChanged="SelectionChanged" RightTapped="GridRightTapped" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ContainerContentChanging="TileChanging" Loaded="GalleryLoaded" CanDragItems="True" DragItemsStarting="StartDrag" PointerWheelChanged="GalleryWheel">
+    <GridView x:Name="MediaGrid" AutomationProperties.AutomationId="MediaGrid" SelectionMode="Extended" IsSynchronizedWithCurrentItem="False" IsItemClickEnabled="False" DoubleTapped="GridDoubleTapped" SelectionChanged="SelectionChanged" RightTapped="GridRightTapped" KeyDown="GallerySpaceKeyDown" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ContainerContentChanging="TileChanging" Loaded="GalleryLoaded" CanDragItems="True" DragItemsStarting="StartDrag" PointerWheelChanged="GalleryWheel">
      <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal"/></ItemsPanelTemplate></GridView.ItemsPanel>
      <GridView.GroupStyle><GroupStyle><GroupStyle.HeaderTemplate><DataTemplate><TextBlock Text="{Binding Key}" FontSize="20" FontWeight="SemiBold" CharacterSpacing="-15" Margin="5,20,0,10"/></DataTemplate></GroupStyle.HeaderTemplate></GroupStyle></GridView.GroupStyle>
      <GridView.ItemTemplate><DataTemplate>
@@ -226,7 +225,7 @@
     </GridView>
 
     <!-- Adaptive Proportions / Moments Justified Row View -->
-    <ListView x:Name="JustifiedRowsList" Visibility="Collapsed" SelectionMode="None" IsSynchronizedWithCurrentItem="False" Loaded="JustifiedListLoaded" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ContainerContentChanging="JustifiedRowChanging" SizeChanged="JustifiedList_SizeChanged" PointerWheelChanged="GalleryWheel">
+    <ListView x:Name="JustifiedRowsList" Visibility="Collapsed" SelectionMode="None" IsSynchronizedWithCurrentItem="False" KeyDown="GallerySpaceKeyDown" Loaded="JustifiedListLoaded" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ContainerContentChanging="JustifiedRowChanging" SizeChanged="JustifiedList_SizeChanged" PointerWheelChanged="GalleryWheel">
      <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/></Style></ListView.ItemContainerStyle>
      <ListView.ItemTemplate><DataTemplate>
       <StackPanel Margin="0,0,0,8">

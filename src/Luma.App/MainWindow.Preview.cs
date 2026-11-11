@@ -15,13 +15,14 @@ public sealed partial class MainWindow
     private MediaCard? previewingCard;
     private bool previewMutatedGallery;
 
-    private void SpacePreviewShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    private void GallerySpaceKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (e.Key != VirtualKey.Space) return;
         if (SelectMode.IsChecked == true && PreviewOverlay.Visibility != Visibility.Visible) return;
         var focused = FocusManager.GetFocusedElement(this.Content.XamlRoot);
-        if (focused is TextBox or PasswordBox) return;
+        if (focused is TextBox or PasswordBox or Microsoft.UI.Xaml.Controls.Primitives.ButtonBase or ComboBox or Slider) return;
 
-        args.Handled = true;
+        e.Handled = true;
         TogglePreview();
     }
 
@@ -194,6 +195,8 @@ public sealed partial class MainWindow
 
         if (settings.LayoutMode == "Uniform")
             MediaGrid.Focus(FocusState.Programmatic);
+        else
+            JustifiedRowsList.Focus(FocusState.Programmatic);
     }
 
     private void PreviewPrevious(object sender, RoutedEventArgs e) => DoPreviewPrevious();
