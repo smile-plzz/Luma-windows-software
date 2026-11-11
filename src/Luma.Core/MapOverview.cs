@@ -85,8 +85,8 @@ public static class MapOverviewBuilder
             }
         }
 
-        // Merge nearby unnamed markers (~12 km) into matching named regions, otherwise group into ~22 km regional cells.
-        var unnamedGrid = new Dictionary<(int LatCell, int LonCell), List<GeoMarker>>();
+        // Merge nearby unnamed markers (~12 km) into matching named regions, otherwise group via greedy centroid (~22 km) to avoid grid-boundary splits.
+        var unnamedClusters = new List<(double SumLat, double SumLon, List<GeoMarker> Items)>();
         foreach (var m in unnamedMarkers)
         {
             List<GeoMarker>? nearestNamed = null;
@@ -109,17 +109,42 @@ public static class MapOverviewBuilder
                 continue;
             }
 
-            var latCell = (int)Math.Round(m.Latitude / 0.20);
             var cosLat = Math.Max(0.25, Math.Cos(m.Latitude * Math.PI / 180.0));
-            var lonStep = 0.20 / cosLat;
-            var lonCell = (int)Math.Round(m.Longitude / lonStep);
-            var key = (latCell, lonCell);
-            if (!unnamedGrid.TryGetValue(key, out var list))
-                unnamedGrid[key] = list = new List<GeoMarker>();
-            list.Add(m);
+            var maxLonDeg = 0.22 / cosLat;
+            int bestIdx = -1;
+            double bestClusterScore = double.MaxValue;
+            for (int i = 0; i < unnamedClusters.Count; i++)
+            {
+                var c = unnamedClusters[i];
+                var count = c.Items.Count;
+                var cLat = c.SumLat / count;
+                var cLon = c.SumLon / count;
+                var dLat = Math.Abs(cLat - m.Latitude);
+                var dLon = Math.Abs(cLon - m.Longitude);
+                if (dLat <= 0.22 && dLon <= maxLonDeg)
+                {
+                    var normScore = dLat * dLat + (dLon * cosLat) * (dLon * cosLat);
+                    if (normScore < bestClusterScore)
+                    {
+                        bestClusterScore = normScore;
+                        bestIdx = i;
+                    }
+                }
+            }
+
+            if (bestIdx >= 0)
+            {
+                var cur = unnamedClusters[bestIdx];
+                cur.Items.Add(m);
+                unnamedClusters[bestIdx] = (cur.SumLat + m.Latitude, cur.SumLon + m.Longitude, cur.Items);
+            }
+            else
+            {
+                unnamedClusters.Add((m.Latitude, m.Longitude, new List<GeoMarker> { m }));
+            }
         }
 
-        foreach (var list in unnamedGrid.Values)
+        foreach (var (_, _, list) in unnamedClusters)
             workingGroups.Add((null, list));
 
         var results = new List<VisitedPlaceSummary>(workingGroups.Count);
