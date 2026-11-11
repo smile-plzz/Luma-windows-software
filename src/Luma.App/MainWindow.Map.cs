@@ -487,6 +487,7 @@ public sealed partial class MainWindow
 
     private void MapPinModeToggled(object sender, RoutedEventArgs e)
     {
+        if (MapPinModeToggle is null || OfflinePinHint is null) return;
         mapPinMode = MapPinModeToggle.IsChecked == true;
         if (!mapPinMode) pendingPinMedia = Array.Empty<CachedMedia>();
         UpdatePinModeVisuals();
@@ -494,6 +495,7 @@ public sealed partial class MainWindow
 
     private void UpdatePinModeVisuals()
     {
+        if (OfflinePinHint is null || OfflinePinHintText is null) return;
         var activeTargets = GetPinTargets();
         var hint = activeTargets.Length > 0
             ? $"Click map to pin {activeTargets.Length:N0} selected item(s) cleanly in catalog"
@@ -616,12 +618,14 @@ public sealed partial class MainWindow
 
     private void MapChromeToggled(object sender, RoutedEventArgs e)
     {
+        if (MapFilmstripBar is null || MapDrawerPanel is null || MapStripToggle is null || MapDrawerToggle is null) return;
         MapFilmstripBar.Visibility = MapStripToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         MapDrawerPanel.Visibility = MapDrawerToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void MapKindFilterClicked(object sender, RoutedEventArgs e)
     {
+        if (MapKindAll is null || MapKindPhotos is null || MapKindVideos is null) return;
         if (ReferenceEquals(sender, MapKindAll)) mapSelectedKind = null;
         else if (ReferenceEquals(sender, MapKindPhotos)) mapSelectedKind = "photo";
         else if (ReferenceEquals(sender, MapKindVideos)) mapSelectedKind = "video";
@@ -629,22 +633,25 @@ public sealed partial class MainWindow
         MapKindAll.IsChecked = mapSelectedKind is null;
         MapKindPhotos.IsChecked = mapSelectedKind == "photo";
         MapKindVideos.IsChecked = mapSelectedKind == "video";
-        await RefreshMapDataAsync(fitViewport: true);
+        if (MapOverlay?.Visibility == Visibility.Visible) await RefreshMapDataAsync(fitViewport: true);
     }
 
     private async void MapFilterChanged(object sender, RoutedEventArgs e)
     {
-        if (!mapFiltersInitializing) await RefreshMapDataAsync(fitViewport: true);
+        if (!ready || mapFiltersInitializing || MapOverlay is null || MapOverlay.Visibility != Visibility.Visible) return;
+        await RefreshMapDataAsync(fitViewport: true);
     }
 
     private async void MapComboFilterChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!mapFiltersInitializing) await RefreshMapDataAsync(fitViewport: true);
+        if (!ready || mapFiltersInitializing || MapOverlay is null || MapOverlay.Visibility != Visibility.Visible) return;
+        await RefreshMapDataAsync(fitViewport: true);
     }
 
     private async void MapSearchTextChanged(object sender, TextChangedEventArgs e)
     {
-        if (!mapFiltersInitializing) await RefreshMapDataAsync(fitViewport: false);
+        if (!ready || mapFiltersInitializing || MapOverlay is null || MapOverlay.Visibility != Visibility.Visible) return;
+        await RefreshMapDataAsync(fitViewport: false);
     }
 
     private async void MapResetFiltersClicked(object sender, RoutedEventArgs e)
@@ -671,6 +678,7 @@ public sealed partial class MainWindow
 
     private void MapViewModeClicked(object sender, RoutedEventArgs e)
     {
+        if (MapViewClustersBtn is null || MapViewPinsBtn is null || MapViewTrailBtn is null) return;
         if (ReferenceEquals(sender, MapViewClustersBtn)) mapViewMode = "clusters";
         else if (ReferenceEquals(sender, MapViewPinsBtn)) mapViewMode = "pins";
         else if (ReferenceEquals(sender, MapViewTrailBtn)) mapViewMode = "trail";
@@ -688,6 +696,7 @@ public sealed partial class MainWindow
 
     private void MapDrawerTabClicked(object sender, RoutedEventArgs e)
     {
+        if (MapTabClusters is null || MapTabPlaceTags is null || MapTabUnlocated is null) return;
         if (ReferenceEquals(sender, MapTabClusters)) mapDrawerTab = "clusters";
         else if (ReferenceEquals(sender, MapTabPlaceTags)) mapDrawerTab = "placeTags";
         else if (ReferenceEquals(sender, MapTabUnlocated)) mapDrawerTab = "unlocated";

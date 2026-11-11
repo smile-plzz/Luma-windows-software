@@ -138,3 +138,14 @@ Luma: Agent Swarm Handoff (v0.6.0 to v1.0.0)
 - Clean Release publish: `dotnet publish src/Luma.App/Luma.App.csproj -c Release -r win-x64 -p:Platform=x64 -o artifacts/Luma-v0.7.0-win-x64` (`FileVersion=0.7.0.0`, `MainWindowXbf=True`, `MapHtml=True`, SHA-256 `7B1DD9018D9AD75F46F992B8F810B61D52C98E2CBD32727CA659932CC34234AB`).
 - Portable ZIP package: `artifacts/Luma-v0.7.0-win-x64.zip` (`82.72 MB`, SHA-256 `634C92DDA769CD8AEE324FBB20EF64758A470BA133F61346B431A11FC31F0E0D`).
 - `scripts/Smoke-Test.ps1`: Added UIA checks for `Scan GPS` and `Trail` inside the Map overlay; full end-to-end UIA smoke was not executed in this turn while `artifacts/Luma-win-x64/Luma.App.exe` (PID 3868) remained open.
+
+
+### Hotfix: Startup XamlParseException Guard (`2026-11-12T01:36:45+06:00`)
+- **Cause:** `last-error.txt` captured `XamlParseException` on `ToggleButton.IsChecked` during `MainWindow.InitializeComponent()`: `MapStripToggle` fired `Checked="MapChromeToggled"` before `MapFilmstripBar` and `MapDrawerPanel` were constructed by the XAML parser.
+- **Fix ([MainWindow.Map.cs](src/Luma.App/MainWindow.Map.cs)):** Added null and `Visibility.Visible` guards to `MapChromeToggled`, `MapPinModeToggled`, `UpdatePinModeVisuals`, `MapKindFilterClicked`, `MapFilterChanged`, `MapComboFilterChanged`, `MapSearchTextChanged`, `MapViewModeClicked`, and `MapDrawerTabClicked`.
+- **Verification:**
+  - Live normal launch probe (`Luma.App.exe` without smoke flags): created visible WinUI desktop window (`WindowHandle=3672170`) with clean close.
+  - Live UIA Map probe (`--smoke-test`): opened Map View, verified `Online Map Privacy Notice (One-Time Per Session)`, `Scan GPS`, `Pin mode`, `Filmstrip`, `Locations`, toggled `Trail`, and returned to gallery.
+  - `dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release`: 113 passed, 0 failed, 0 skipped.
+  - `dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release`: 6 passed, 0 failed, 0 skipped.
+  - Clean Release publish (`artifacts/Luma-v0.7.0-win-x64/Luma.App.exe`, `FileVersion=0.7.0.0`, SHA-256 `57447474848AE088E2C2BD7F6C3EAFE18640D346B869BA1ACAC2E0CE3BBEBC79`) and ZIP (`artifacts/Luma-v0.7.0-win-x64.zip`, `82.72 MB`, SHA-256 `CF122B9E5CF44C56ED02C21BF34F986B364180CB3D25329B7E685E8F4182BFF0`).
