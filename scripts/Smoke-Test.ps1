@@ -27,6 +27,11 @@ public class WinInput {
 }
 "@
 New-Item -ItemType Directory -Force artifacts/qa | Out-Null
+$smokeSw = [System.Diagnostics.Stopwatch]::StartNew()
+function Write-SmokeStep([string]$Step) {
+    Write-Host ("[{0:000.0}s] {1}" -f $smokeSw.Elapsed.TotalSeconds, $Step)
+}
+Write-SmokeStep "Checking executable metadata"
 $exe = (Resolve-Path $Executable).Path
 $version=[System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
 if ($version.ProductName -ne 'Luma' -or $version.FileVersion -ne '0.7.0.0' -or $version.FileDescription -ne 'Luma — Local media gallery') { throw 'Executable branding/version metadata is incorrect.' }
@@ -76,7 +81,7 @@ try {
         for ($j = 0; $j -lt 120; $j++) { $found = Find-Control $Name; if ($found) { return $found }; Start-Sleep -Milliseconds 500 }
         throw "Control did not become available: $Name"
     }
-    function Capture-Screen([string]$OutputPath) {
+    function Save-ScreenCapture([string]$OutputPath) {
         try {
             if (!$window) { return }
             $rectangle = $window.Current.BoundingRectangle
@@ -152,6 +157,7 @@ try {
         Start-Sleep -Seconds 1
     }
     Wait-Control 'fixture000.bmp' | Out-Null
+    Write-SmokeStep "Gallery loaded; checking UIA tree and scrolling to end"
     Start-Sleep -Seconds 3
     $nodes = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
     $names = @($nodes | ForEach-Object { $_.Current.Name })
@@ -172,6 +178,7 @@ try {
     } else { throw 'Gallery did not produce image-lifetime metrics.' }
     $scroll.SetScrollPercent(-1,0)
     Wait-Control 'fixture000.bmp'  | Out-Null
+    Write-SmokeStep "Scroll complete; testing search and Favorites"
     $search = Wait-Control 'Search library'
     $search.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('fixture003')
     Start-Sleep -Seconds 2
@@ -197,6 +204,7 @@ try {
     (Wait-Control 'Library').GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
     Start-Sleep -Seconds 2
     Wait-Control 'fixture000.bmp' | Out-Null
+    Write-SmokeStep "Search and Favorites passed; testing albums"
     # Create and use an actual virtual album through the desktop UI.
     (Wait-Control '+ Album').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Start-Sleep -Milliseconds 500
@@ -220,6 +228,7 @@ try {
     (Wait-Control 'Details').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
     (Wait-Control 'Reset').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Control 'fixture000.bmp' | Out-Null
+    Write-SmokeStep "Albums passed; testing source/folder filter"
     # Select the registered fixture source; folder navigation uses saved catalog data.
     (Wait-Control 'Source filter').GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     Start-Sleep -Milliseconds 500
@@ -239,6 +248,7 @@ try {
     if (Find-Control 'fixture000.bmp') { throw 'Folder navigation did not filter the library.' }
     (Wait-Control 'Up to parent folder').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Control 'fixture000.bmp' | Out-Null
+    Write-SmokeStep "Folder navigation passed; clearing and repairing previews"
     (Wait-Control 'Storage & previews').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Clear selected previews').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Clear previews').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -250,6 +260,7 @@ try {
     $coverage=Find-Id 'StorageCoverage'
     if ($coverage.Current.Name -notlike '260 / 260 current previews saved*') { throw 'Offline coverage is incomplete.' }
     $coverage.Current.Name | Set-Content artifacts/qa/offline-coverage.txt
+    Write-SmokeStep "Repair finished; testing offline disconnect & Memories"
     (Wait-Control 'Close').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     # Make only the isolated synthetic fixture source unavailable, then re-query the cached library.
     $fixtureRoot = Join-Path $smokeRoot "Fixture originals"
@@ -320,14 +331,15 @@ try {
     Send-Keystroke '{ESC}'
     Copy-Item (Join-Path $smokeRoot 'settings.json') artifacts/qa/restored-settings.json
     Start-Sleep -Seconds 2
-    Capture-Screen (Join-Path (Get-Location) 'artifacts/qa/startup.png')
+    Save-ScreenCapture (Join-Path (Get-Location) 'artifacts/qa/startup.png')
     # Capture the polished palette in both supported appearance modes.
     (Wait-Control 'Settings').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Find-Id 'ThemeSelector').GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     (Wait-Control 'Dark').GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
     (Wait-Control 'Save').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Start-Sleep -Seconds 2
-    Capture-Screen (Join-Path (Get-Location) 'artifacts/qa/dark-gallery.png')
+    Save-ScreenCapture (Join-Path (Get-Location) 'artifacts/qa/dark-gallery.png')
+    Write-SmokeStep "Dark theme captured; testing Refresh, Repair, Rebuild"
     # Management is discoverable and works through actual native controls.
     (Wait-Control 'Refresh library').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Refresh all connected sources').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -386,7 +398,7 @@ try {
     Wait-Control '2 file(s) ready to copy. Paste into a destination folder.' | Out-Null
     $clipboardPaths=@(powershell.exe -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::GetFileDropList()")
     if ($clipboardPaths.Count -ne 2 -or !($clipboardPaths | Where-Object { $_ -like '*fixture000.bmp' }) -or !($clipboardPaths | Where-Object { $_ -like '*fixture001.bmp' })) { throw 'Multi-file clipboard contents are incorrect.' }
-    Capture-Screen (Join-Path (Get-Location) 'artifacts/qa/months-selection.png')
+    Save-ScreenCapture (Join-Path (Get-Location) 'artifacts/qa/months-selection.png')
     (Wait-Control 'Selection actions').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Clear selection').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Select').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
@@ -429,7 +441,7 @@ try {
     (Wait-Control 'Reset').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Control '260 items' | Out-Null
     Open-Exclusions
-    Capture-Screen (Join-Path (Get-Location) 'artifacts/qa/exclusions.png')
+    Save-ScreenCapture (Join-Path (Get-Location) 'artifacts/qa/exclusions.png')
     Restore-Rule 'Restore Folder:'
     Wait-Control '261 items' | Out-Null
     $search.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('visible-raw')
@@ -452,6 +464,7 @@ try {
     Wait-Control '261 items' | Out-Null
     if (!(Test-Path (Join-Path $fixtureRoot 'Trips/fixture007.bmp')) -or !(Test-Path (Join-Path $fixtureRoot 'visible-raw.dng'))) { throw 'Exclusions changed originals.' }
     'PASS: context folder cancellation, folder/type/source exclusions, persistent filtering through Reset and refresh, empty-library restoration, counts and originals retained.' | Set-Content artifacts/qa/exclusions.txt
+    Write-SmokeStep "Exclusions passed; testing deep anchor restart"
     # Save a deep position, restart, and verify a bounded anchored window rather than replaying all earlier pages.
     (Wait-Control 'Reset').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Sort order').GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
@@ -547,10 +560,11 @@ try {
     Wait-Control 'Filters' | Out-Null
     'PASS: source manager, removal cancellation, confirmed removal, refreshed album counts, all-source refresh, repair, rebuild, activity and unused-preview cleanup.' | Set-Content artifacts/qa/management.txt
     'PASS: native window, 260-item continuous scrolling and image recycling, search, selection, favorites, albums, cached folders, offline preparation, collapsible chrome, offline map privacy gate and view preference restart work through Windows UI Automation.' | Set-Content artifacts/qa/result.txt
+    Write-SmokeStep "Smoke test completed successfully"
 } catch {
     if ($window) {
         $window.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { "$($_.Current.AutomationId) | $($_.Current.Name)" } | Set-Content artifacts/qa/failure-controls.txt
-        Capture-Screen (Join-Path (Get-Location) 'artifacts/qa/failure.png')
+        Save-ScreenCapture (Join-Path (Get-Location) 'artifacts/qa/failure.png')
     }
     if (Test-Path (Join-Path $smokeRoot "settings.json")) { Copy-Item (Join-Path $smokeRoot "settings.json") artifacts/qa/failure-settings.json }
     if (Test-Path (Join-Path $smokeRoot "last-error.txt")) { Copy-Item (Join-Path $smokeRoot "last-error.txt") artifacts/qa/last-error.txt }
