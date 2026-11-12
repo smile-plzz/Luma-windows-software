@@ -235,3 +235,34 @@ Luma: Agent Swarm Handoff (v0.6.0 to v1.0.0)
 - `dotnet publish src/Luma.App/Luma.App.csproj -c Release -r win-x64 -p:Platform=x64 -o artifacts/Luma-win-x64`: succeeded (`MainWindow.xbf` present, `Luma.App.exe` SHA-256 `CA3AE2798E583CE68522236288A8785F6578A35CDBE048CA9FBA9950708E5AD4`).
 - `scripts/Smoke-Test.ps1 -Executable artifacts/Luma-win-x64/Luma.App.exe`: **exited with code 0** (`[1111.0s] Smoke test completed successfully`).
 - Packaged `artifacts/Luma-v0.7.0-rc1-win-x64.zip` (`86,776,707` bytes, SHA-256 `66F56C2270E393136C955A9151B196B20E61BC661BC60543B81EB97F9D78463D`) and `artifacts/SHA256SUMS.txt`.
+
+---
+
+## 2026-11-12T13:41:00+06:00 - Loading Safety, Transparent Progress, Hover Micro-Interactions & Aesthetics Polish (D-14 / F-033)
+
+### Task Received
+- Address loading-state interaction hangs/crashes with a transparent blocking `LoadingVeil` + `ProgressBar` and concurrency hardening, handle double-launch `cache.lock` failures cleanly, and deliver Windows 11 Mica/hover/motion/accessibility polish across Gallery, Inspector, and Map View.
+
+### Changes Applied
+- **Loading Interaction Veil, Concurrency & Progress Transparency ([MainWindow.xaml](src/Luma.App/MainWindow.xaml), [MainWindow.Progress.cs](src/Luma.App/MainWindow.Progress.cs), [MainWindow.xaml.cs](src/Luma.App/MainWindow.xaml.cs), [MainWindow.Gallery.cs](src/Luma.App/MainWindow.Gallery.cs), [MainWindow.Place.cs](src/Luma.App/MainWindow.Place.cs), [MainWindow.Management.cs](src/Luma.App/MainWindow.Management.cs), [MainWindow.Organization.cs](src/Luma.App/MainWindow.Organization.cs)):**
+  - Wrapped workspace inside `WorkspaceHost` (`IsEnabled = false` when locked) under `LoadingVeil` (`LoadingTitle`, `LoadingDetail`, determinate/indeterminate `LoadingProgressBar`, and Cancel/Retry/Exit buttons).
+  - Protected startup (`InitializeStartupAsync` -> `RestorePlace`), `OpenDuplicatesFinder`, `BackupCatalogAction`, `RestoreCatalogAction`, `ResetCatalogAction`, `RemoveManagedSource`, `MaintainCache` cleanups, `ReconcileExternalMovesAsync`, `TransferPaths`, and `ReviewLastTransfer` undo with `RunLockedAsync` / progress feedback.
+  - Caught `IOException` on `cache.lock` cleanly in `InitializeStartupAsync`, surfacing `"Luma is already open"` with Retry and Exit instead of continuing with `cache == null`.
+  - Pre-cancelled `queryCancellation` and coalesced stale rapid filter requests via `galleryRequestVersion` in `RefreshGallery` (plus 160ms deferred `GalleryResetVeil` and unconditional `Busy.IsActive` reset in `finally`), throttled `Activated` focus refreshes (`4s` cooldown), and added `ActiveWorkBanner` for non-blocking background indexing and preview repairs.
+- **Hover Micro-Interactions, Mica Surface Craft & Responsive Layout ([App.xaml](src/Luma.App/App.xaml), [MediaCard.cs](src/Luma.App/MediaCard.cs), [MainWindow.Map.cs](src/Luma.App/MainWindow.Map.cs), [Assets/Map/map.html](src/Luma.App/Assets/Map/map.html)):**
+  - Enabled `MicaKind.BaseAlt` with translucent `LumaSidebar` (`#CCF2F0EC` / `#CC1E1E22`), elevated surface/hover border tokens, `ThemeShadow` floating chrome, `AccentButtonStyle` primary CTAs, `DefaultButton = ContentDialogButton.Primary` on constructive dialogs, and `Segoe Fluent Icons` glyphs (retaining standard OS titlebar so caption `"Close"` buttons never shadow `ContentDialog` UIA controls).
+  - Added `UISettings.AnimationsEnabled`-aware Composition animations (inner `1.035x` hover zoom reset cleanly in `TileChanging`/`Discard()`, async thumbnail fade-in on `CardImageOpened`, bottom gradient scrim, `SelectionBar`/`Inspector`/`MapOverlay`/`MapDrawerPanel` slide+fade entrances, and accordion chevron rotation).
+  - Split `MediaCard` badges into Video duration (`▶ 0:42`), `Offline`, and `Favorite` indicators; structured `Inspector` quick actions (`Open` / `Explorer`); added `Tags…` / `Delete` to `SelectionBar` and dropzone framing to `EmptyState`; added keyboard/hover/selection parity to `JustifiedRowsList` (`Adaptive`/`Moments`); wrapped Map header controls cleanly, stacked bottom overlays to avoid collisions, and added `MapDrawerPanel` close button + in-memory search filter.
+- **Verification & Package (`tests/Luma.Tests/StabilizationTests.cs`, `docs/DECISIONS.md`, `docs/assessment/FINDINGS.md`, `docs/RELEASE_CHECKLIST.md`, `CHANGELOG.md`, `releases/v0.7.0*.md`):**
+  - Added `ThumbnailCacheLockAndDuplicateScanCancellationBehaveCleanly` in `StabilizationTests.cs`.
+  - `dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release`: **131 passed, 0 failed, 0 skipped**.
+  - `dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release`: **8 passed, 0 failed, 0 skipped**.
+  - `scripts/Smoke-Test.ps1 -Executable artifacts/Luma-win-x64/Luma.App.exe`: **exited with code 0** (`[521.7s] Smoke test completed successfully`).
+  - Packaged `artifacts/Luma-v0.7.0-rc1-win-x64.zip` (`86,796,978` bytes, SHA-256 `6710B88A04E8E48192AC6665394BCB8BC00C4E73A7CDBF82703779E137C29FF6`, `Luma.App.exe` SHA-256 `C06DCD3A73427E71B2103651C83F388B4EE9EFD1DBBBF16A75D0BFE63BD353A9`) and `artifacts/SHA256SUMS.txt`.
+
+---
+
+## 2026-11-12T14:01:00+06:00 - Documentation & Iconography Sync + Build Shutdown
+
+- Updated [context.md](context.md), [docs/BRANDING.md](docs/BRANDING.md), [docs/USER_GUIDE.md](docs/USER_GUIDE.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [docs/assessment/ARCHITECTURE.md](docs/assessment/ARCHITECTURE.md) to reflect external media handoff, Map SQLite/in-session caching (`D-13`), `LoadingVeil` / `ActiveWorkBanner` loading safety (`D-14`), `Luma.ico` (`37,539` bytes from `Luma.svg`) + `Segoe Fluent Icons` in-app iconography, and `MicaKind.BaseAlt` translucent sidebar surfaces.
+- Shut down .NET/MSBuild/Roslyn compiler build servers cleanly (`dotnet build-server shutdown`); paused local build activity.

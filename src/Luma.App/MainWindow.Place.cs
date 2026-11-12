@@ -100,7 +100,7 @@ public sealed partial class MainWindow
     {
         var place=settings.RememberPlace ? settings.Place : null;
         if(place is null) {ready=true;await Refresh();return;}
-        restoringPlace=true;ViewHost.IsEnabled=false;
+        restoringPlace=true;
         string message="Welcome back. Your last view is restored.";
         try
         {
@@ -125,12 +125,11 @@ public sealed partial class MainWindow
                 else message="Your previous item is no longer in this view. Showing the first available items.";
             }
             ready=true; await RefreshGallery(false,offset);
-            ViewHost.IsEnabled=true;
             Notify(message);
             var anchor=cards.FirstOrDefault(c=>c.Item.Media.SourceId==place.AnchorSource && c.Item.Media.RelativePath==place.AnchorPath);
             if(anchor is not null)await PositionAnchor(anchor,double.IsFinite(place.Inset) ? Math.Clamp(place.Inset,-1000,1000) : 0);
         }
-        finally {restoringPlace=false;ViewHost.IsEnabled=true;ready=true;SchedulePlaceSave();}
+        finally {restoringPlace=false;ready=true;SchedulePlaceSave();}
     }
     private async Task PositionAnchor(MediaCard anchor,double inset)
     {

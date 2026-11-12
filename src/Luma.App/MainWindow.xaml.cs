@@ -36,6 +36,8 @@ public sealed partial class MainWindow : Window
     private bool ready, scanning, operation, clipboardBusy;
     private string sourceSignature = "";
     private bool checkingSources;
+    private int activeDialogs;
+    private DateTime lastActivatedRefreshUtc = DateTime.MinValue;
 
     private long total;
     private readonly Stopwatch workClock = new();
@@ -53,7 +55,7 @@ public sealed partial class MainWindow : Window
         try
         {
             if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported())
-                SystemBackdrop = new MicaBackdrop();
+                SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt };
         }
         catch { }
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory,"Assets","Luma.ico"));
@@ -68,17 +70,38 @@ public sealed partial class MainWindow : Window
         workTimer.Tick+=(_,_)=>WorkElapsed.Text=workClock.IsRunning ? workClock.Elapsed.ToString(@"hh\:mm\:ss") : "";
         Activated += async (_, e) =>
         {
-            if (e.WindowActivationState != WindowActivationState.Deactivated && ready && !scanning && !operation)
+            if (e.WindowActivationState != WindowActivationState.Deactivated
+                && ready && !scanning && !operation && !IsUiLocked && activeDialogs == 0
+                && (DateTime.UtcNow - lastActivatedRefreshUtc).TotalSeconds >= 4)
+            {
+                lastActivatedRefreshUtc = DateTime.UtcNow;
                 await Guard(LoadSources);
+            }
         };
-        availabilityTimer.Tick += async (_, _) => { if (ready && !scanning && !operation) await Guard(async () => await LoadSources()); };
+        availabilityTimer.Tick += async (_, _) =>
+        {
+            if (ready && !scanning && !operation && !IsUiLocked && activeDialogs == 0)
+                await Guard(async () => await LoadSources());
+        };
     }
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         if (ready) return;
-        await Guard(async () =>
+        await Guard(InitializeStartupAsync);
+    }
+
+    private async Task InitializeStartupAsync()
+    {
+        if (ready) return;
+        ShowLoadingVeil("Opening your library", "Verifying catalog health. Originals stay untouched.", percent: 15);
+        bool keepLockOverlay = false;
+        try
         {
-            if (AppSettings.IsSmokeTest && !File.Exists(Path.Combine(AppSettings.LocalRoot,"settings.json"))) { settings.ThumbnailSize=140; settings.ShowNames=true; }
+            if (AppSettings.IsSmokeTest && !File.Exists(Path.Combine(AppSettings.LocalRoot, "settings.json")))
+            {
+                settings.ThumbnailSize = 140;
+                settings.ShowNames = true;
+            }
             ApplyTheme();
             if (settings.RestoredFromCorruptedFile)
             {
@@ -91,6 +114,7 @@ public sealed partial class MainWindow : Window
             var healthy = await Task.Run(() => catalog.QuickCheckAsync());
             if (!healthy)
             {
+                UpdateLoadingVeil(detail: "Repairing catalog structure safely from backup…", percent: 35);
                 var outcome = await Task.Run(() => catalog.RepairCatalogDetailedAsync());
                 var message = outcome switch
                 {
@@ -102,13 +126,52 @@ public sealed partial class MainWindow : Window
             }
             else
             {
+                UpdateLoadingVeil(detail: "Initializing local catalog schema…", percent: 40);
                 await Task.Run(() => catalog.InitializeAsync());
             }
-            cache = await Task.Run(() => new ThumbnailCache(Path.Combine(AppSettings.LocalRoot, "thumbnails"), Math.Clamp(settings.CacheGiB, 1, 32) * 1024L * 1024 * 1024));
+
+            UpdateLoadingVeil(detail: "Connecting thumbnail cache…", percent: 60);
+            try
+            {
+                cache = await Task.Run(() => new ThumbnailCache(
+                    Path.Combine(AppSettings.LocalRoot, "thumbnails"),
+                    Math.Clamp(settings.CacheGiB, 1, 32) * 1024L * 1024 * 1024));
+            }
+            catch (IOException)
+            {
+                keepLockOverlay = true;
+                HideLoadingVeil(force: true);
+                ShowLoadingVeil(
+                    "Luma is already open",
+                    $"Another Luma window currently owns {Path.Combine(AppSettings.LocalRoot, "thumbnails", "cache.lock")}. Close the other window and click Try again, or Exit.",
+                    cts: null,
+                    percent: null,
+                    showRetryExit: true);
+                return;
+            }
+
             thumbnails = new(cache, resolver, new WindowsThumbnailGenerator());
-            if (AppSettings.IsSmokeTest) await SeedSmokeFixtures();
-            await LoadSources(); await LoadAlbums(); await LoadSmartCollections(); ApplyViewSettings(); settings.Save(); availabilityTimer.Start(); await RestorePlace();
-        });
+            if (AppSettings.IsSmokeTest)
+            {
+                UpdateLoadingVeil(detail: "Preparing smoke test fixtures…", percent: 70);
+                await SeedSmokeFixtures();
+            }
+
+            UpdateLoadingVeil(detail: "Loading registered sources, albums, and collections…", percent: 80);
+            await LoadSources();
+            await LoadAlbums();
+            await LoadSmartCollections();
+            ApplyViewSettings();
+            settings.Save();
+            availabilityTimer.Start();
+
+            UpdateLoadingVeil(detail: "Restoring your previous view and position…", percent: 92);
+            await RestorePlace();
+        }
+        finally
+        {
+            if (!keepLockOverlay) HideLoadingVeil(force: true);
+        }
     }
     private async Task SeedSmokeFixtures()
     {
@@ -311,7 +374,10 @@ public sealed partial class MainWindow : Window
     private void UpdateSelectionChrome(MediaCard[] selected)
     {
         var card = PrimarySelectedCard();
-        SelectionBar.Visibility = selected.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        var shouldShow = selected.Length > 0;
+        var wasVisible = SelectionBar.Visibility == Visibility.Visible;
+        SelectionBar.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
+        if (shouldShow && !wasVisible) AnimatePanelEntrance(SelectionBar, 0f, 10f, 160);
         SelectionCount.Text = $"{selected.Length:N0} selected";
         SelectionHint.Visibility = selected.Length == 0 && SelectMode.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
 
@@ -349,10 +415,23 @@ public sealed partial class MainWindow : Window
         var placeLine = !string.IsNullOrWhiteSpace(meta?.LocationName) ? $"\nPlace: {meta.LocationName}" : "";
         var originNote = meta?.LocationOrigin == "manual" ? " (Manual pin)" : "";
         var gpsLine = meta?.Latitude is double lat && meta.Longitude is double lon ? $"\nGPS: {lat:0.00000}, {lon:0.00000}{originNote}" : "";
+        InspectorQuickActions.Visibility = card is not null ? Visibility.Visible : Visibility.Collapsed;
         InspectorMapButton.Visibility = meta?.Latitude is not null ? Visibility.Visible : Visibility.Collapsed;
         InspectorPinLocationButton.Visibility = card is not null ? Visibility.Visible : Visibility.Collapsed;
 
         SelectionText.Text = card is null ? "Select media to inspect" : $"{card.Name}\n\n{card.Item.Media.RelativePath}\n\n{card.Item.Media.Length / 1024d:N0} KB · {card.Item.Media.Kind}\n{dimensions}\n{(meta?.DurationSeconds > 0 ? TimeSpan.FromSeconds(meta.DurationSeconds).ToString(@"hh\:mm\:ss") : "")}\n\nTaken: {taken}\nModified: {new DateTime(card.Item.Media.ModifiedTicks, DateTimeKind.Utc).ToLocalTime():dd MMM yyyy HH:mm:ss}\n{meta?.DateOrigin}{camLine}{placeLine}{gpsLine}\n\n{(card.Item.Media.IsAvailable ? "Source connected" : "Offline preview · reconnect to open original")}";
+    }
+
+    private void FocusInspectorTags(object sender, RoutedEventArgs e)
+    {
+        if (InspectorToggle.IsChecked != true) InspectorToggle.IsChecked = true;
+        if (Inspector.Visibility != Visibility.Visible)
+        {
+            Inspector.Visibility = Visibility.Visible;
+            AnimatePanelEntrance(Inspector, 16f, 0f, 160);
+        }
+        TagsBox.Focus(FocusState.Programmatic);
+        TagsBox.SelectAll();
     }
     private void GridRightTapped(object sender, RightTappedRoutedEventArgs e)
     {
@@ -597,12 +676,14 @@ public sealed partial class MainWindow : Window
     private readonly List<ContentDialog> retainedDialogs = new();
     private async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog)
     {
+        activeDialogs++;
         try
         {
             return await dialog.ShowAsync();
         }
         finally
         {
+            activeDialogs = Math.Max(0, activeDialogs - 1);
             // Keep cleared shells alive so WinUI's UIAffinityReleaseQueue never runs ~ContentDialog/~CPopup
             // inside a reentrancy-protected tick while UIA or Narrator is attached.
             dialog.Content = null;
@@ -616,7 +697,7 @@ public sealed partial class MainWindow : Window
     {
         var input = new TextBox { Text = initial, Header = description, MinWidth = 320 };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(input,"DialogInput");
-        var dialog = new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = title, Content = input, PrimaryButtonText = "Save", CloseButtonText = "Cancel" };
+        var dialog = new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = title, Content = input, PrimaryButtonText = "Save", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
         return await ShowDialogAsync(dialog) == ContentDialogResult.Primary ? input.Text.Trim() : null;
     }
     private void ApplyTheme()
@@ -639,7 +720,7 @@ public sealed partial class MainWindow : Window
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(remember,"RememberPlace");
         ToolTipService.SetToolTip(remember,"Restore your last source, folder, filters, month and visible item. Turn off to start fresh.");
         panel.Children.Add(remember); panel.Children.Add(theme); panel.Children.Add(budget); panel.Children.Add(new TextBlock { Text = "Thumbnails and metadata are saved on this PC. Old thumbnails are removed when the cache fills, including thumbnails from offline drives.", TextWrapping = TextWrapping.Wrap, MaxWidth = 400 });
-        var dialog = new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = "Settings", Content = new ScrollViewer { MaxHeight = 500, Content = panel }, PrimaryButtonText = "Save", CloseButtonText = "Cancel" };
+        var dialog = new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = "Settings", Content = new ScrollViewer { MaxHeight = 500, Content = panel }, PrimaryButtonText = "Save", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
         bool storage=false,exclusions=false,manageTags=false,findDuplicates=false,backupCatalog=false,restoreCatalog=false,resetCatalog=false,copyDiagnostics=false,sendFeedback=false,showShortcuts=false,checkUpdates=false;
         panel.Children.Add(Description("Luma · Your memories, calmly organized.\nVersion 0.7.0 · Windows portable (unsigned)\nData location: " + AppSettings.LocalRoot));
         panel.Children.Add(ActionButton("Keyboard shortcuts & tips (F1)",()=> { showShortcuts=true; dialog.Hide(); }));
@@ -676,7 +757,7 @@ public sealed partial class MainWindow : Window
     }, true);
     private bool HandleShortcut(KeyboardAcceleratorInvokedEventArgs e)
     {
-        if (!ready || Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(Root.XamlRoot) is TextBox) return false;
+        if (!ready || IsUiLocked || activeDialogs > 0 || Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(Root.XamlRoot) is TextBox) return false;
         e.Handled = true; return true;
     }
     private async void CopyShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e) { if (HandleShortcut(e)) await ClipboardAction(() => Copy(false)); }
@@ -800,7 +881,10 @@ public sealed partial class MainWindow : Window
         var backupDir = Path.Combine(AppSettings.LocalRoot, "backups");
         Directory.CreateDirectory(backupDir);
         var backupFile = Path.Combine(backupDir, $"catalog-backup-{DateTime.UtcNow:yyyyMMddHHmmss}.db");
-        await catalog.CreateBackupAsync(backupFile);
+        await RunLockedAsync(
+            "Backing up catalog",
+            "Saving a clean SQLite snapshot without touching original photos or videos…",
+            (_, ct) => Task.Run(() => catalog.CreateBackupAsync(backupFile, ct), ct));
         Notify($"Catalog backup saved to backups\\{Path.GetFileName(backupFile)}.");
     }
 
@@ -815,12 +899,24 @@ public sealed partial class MainWindow : Window
 
         if (!await Confirm("Restore catalog from backup?", $"Restoring from {file.Name} will replace your current catalog. An automatic safety backup will be created first.", "Restore")) return;
 
-        var restored = await catalog.RestoreBackupAsync(file.Path);
+        bool restored = false;
+        await RunLockedAsync(
+            "Restoring catalog backup",
+            $"Verifying and restoring {file.Name}. Please wait before browsing…",
+            async (progress, ct) =>
+            {
+                restored = await Task.Run(() => catalog.RestoreBackupAsync(file.Path, ct), ct);
+                if (restored)
+                {
+                    progress.Report(("Reloading sources, albums, and gallery…", 75));
+                    await LoadSources();
+                    await LoadAlbums();
+                    await Refresh();
+                }
+            });
         if (restored)
         {
-            await LoadSources();
-            await LoadAlbums();
-            await Refresh();
+            InvalidateMapCache(resetBackfillCheck: true);
             Notify($"Catalog successfully restored from {file.Name}.");
         }
         else
@@ -897,8 +993,23 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenDuplicatesFinder()
     {
-        Notify("Scanning for duplicate files by size and hash…");
-        var duplicates = await Task.Run(() => catalog.FindDuplicatesAsync(SelectedSource));
+        IReadOnlyList<DuplicateGroup> duplicates = Array.Empty<DuplicateGroup>();
+        try
+        {
+            await RunLockedAsync(
+                "Scanning for duplicates",
+                "Comparing file sizes and computing content hashes for matching candidates…",
+                async (_, ct) =>
+                {
+                    duplicates = await Task.Run(() => catalog.FindDuplicatesAsync(SelectedSource, ct), ct);
+                },
+                cancellable: true);
+        }
+        catch (OperationCanceledException)
+        {
+            Notify("Duplicate scan cancelled. No files were changed.");
+            return;
+        }
         if (duplicates.Count == 0)
         {
             Notify("No duplicate files found in the current scope.");
@@ -961,13 +1072,20 @@ public sealed partial class MainWindow : Window
             "Clears Luma's local database of registered sources, tags, favorites, and albums. Your original files and folders stay 100% untouched. Tip: choose Back up catalog first if you want a snapshot.",
             "Reset catalog")) return;
 
-        await Task.Run(() => catalog.ResetCatalogAsync());
-        InvalidateMapCache(resetBackfillCheck: true);
-        sourceSignature = "";
-        await LoadSources();
-        await LoadAlbums();
-        await LoadSmartCollections();
-        await Refresh();
+        await RunLockedAsync(
+            "Resetting Luma catalog",
+            "Reinitializing catalog database cleanly. Original files remain untouched…",
+            async (progress, ct) =>
+            {
+                await Task.Run(() => catalog.ResetCatalogAsync(ct), ct);
+                InvalidateMapCache(resetBackfillCheck: true);
+                sourceSignature = "";
+                progress.Report(("Reloading clean workspace…", 80));
+                await LoadSources();
+                await LoadAlbums();
+                await LoadSmartCollections();
+                await Refresh();
+            });
         Notify("Catalog reset cleanly. Originals were not touched.");
     }
 

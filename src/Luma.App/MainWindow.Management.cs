@@ -105,18 +105,32 @@ public sealed partial class MainWindow
             var reconcile = new MenuFlyoutItem { Text = "Reconcile moved files", IsEnabled = source.IsOnline };
             reconcile.Click += (_, _) => Choose(async () =>
             {
-                Notify($"Checking {source.RootPath} for externally moved files…");
-                var report = await Task.Run(() => catalog.ReconcileExternalMovesAsync(source.Id));
-                if (report.Count > 0)
+                ReconciliationReport? report = null;
+                try
                 {
-                    await LoadAlbums();
-                    await Refresh();
+                    await RunLockedAsync(
+                        "Reconciling moved files",
+                        $"Scanning {source.RootPath} and matching moved items in catalog…",
+                        async (_, ct) =>
+                        {
+                            report = await Task.Run(() => catalog.ReconcileExternalMovesAsync(source.Id, ct), ct);
+                            if (report.Count > 0)
+                            {
+                                await LoadAlbums();
+                                await Refresh();
+                            }
+                        },
+                        cancellable: true);
+                }
+                catch (OperationCanceledException)
+                {
+                    Notify("Move reconciliation cancelled.");
+                    return;
+                }
+                if (report is not null && report.Count > 0)
                     Notify($"Reconciled {report.Count} moved file(s). Organization, favorites, and albums preserved!");
-                }
                 else
-                {
                     Notify("No moved files detected in this source.");
-                }
             });
             menu.Items.Add(reconcile);
             row.Children.Add(buttons); row.Children.Add(more); panel.Children.Add(row);
@@ -136,19 +150,25 @@ public sealed partial class MainWindow
         content.Children.Add(removePreviews);
         var dialog=new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot=Root.XamlRoot,Title="Remove source from Luma?",Content=content,PrimaryButtonText="Remove from Luma",CloseButtonText="Cancel",DefaultButton=ContentDialogButton.Close };
         if(await ShowDialogAsync(dialog)!=ContentDialogResult.Primary)return;
-        try
-        {
-            var backupDir = Path.Combine(AppSettings.LocalRoot, "backups");
-            Directory.CreateDirectory(backupDir);
-            await catalog.CreateBackupAsync(Path.Combine(backupDir, $"catalog-pre-remove-{DateTime.UtcNow:yyyyMMddHHmmss}.db"));
-        }
-        catch { }
-        await catalog.RemoveSourceAsync(id);
-        InvalidateMapCache(resetBackfillCheck: true);
-        if(SelectedSource==id) { var wasReady=ready; ready=false; FolderFilter.Text=""; ClearDateRange(); ready=wasReady; }
-        await LoadSources(); await LoadAlbums(); await Refresh();
+        await RunLockedAsync(
+            "Removing source from library",
+            $"Creating safety backup and removing {count:N0} records for {source.RootPath}. Originals stay untouched…",
+            async (_, ct) =>
+            {
+                try
+                {
+                    var backupDir = Path.Combine(AppSettings.LocalRoot, "backups");
+                    Directory.CreateDirectory(backupDir);
+                    await Task.Run(() => catalog.CreateBackupAsync(Path.Combine(backupDir, $"catalog-pre-remove-{DateTime.UtcNow:yyyyMMddHHmmss}.db"), ct), ct);
+                }
+                catch { }
+                await catalog.RemoveSourceAsync(id);
+                InvalidateMapCache(resetBackfillCheck: true);
+                if(SelectedSource==id) { var wasReady=ready; ready=false; FolderFilter.Text=""; ClearDateRange(); ready=wasReady; }
+                await LoadSources(); await LoadAlbums(); await Refresh();
+            });
         if(removePreviews.IsChecked==true && cache is not null)
-            await MaintainCache(async ()=> { var removed=await cache.RemoveAsync(keys); DispatcherQueue.TryEnqueue(()=>Notify($"Removed source and {removed.Count:N0} previews. Originals are untouched.")); });
+            await MaintainCache(async ()=> { var removed=await cache.RemoveAsync(keys); DispatcherQueue.TryEnqueue(()=>Notify($"Removed source and {removed.Count:N0} previews. Originals are untouched.")); }, "Removing source previews");
         else Notify("Source removed from Luma. Originals are untouched. Storage cleanup can remove its unused previews.");
     }
 
@@ -182,13 +202,20 @@ public sealed partial class MainWindow
         await UpdateStats(); await ShowDialogAsync(dialog); if(action is not null)await action();
     }
 
-    private async Task MaintainCache(Func<Task> action)
+    private async Task MaintainCache(Func<Task> action, string? lockTitle = null)
     {
         clearing=true; queryCancellation?.Cancel();
-        try
+        async Task RunWorkAsync()
         {
             try { await Task.WhenAll(SnapshotCacheTasks()); } catch(OperationCanceledException) { }
             await UseCache(async ()=> { await action(); return true; });
+        }
+        try
+        {
+            if (lockTitle is not null)
+                await RunLockedAsync(lockTitle, "Updating cached thumbnails safely without modifying originals…", (_, _) => RunWorkAsync());
+            else
+                await RunWorkAsync();
         }
         finally
         {
@@ -208,11 +235,17 @@ public sealed partial class MainWindow
         var scope = targetSource?.RootPath ?? "all sources";
         if(rebuild && !await Confirm("Rebuild previews?",$"Regenerate previews for {scope}. Offline or failed previews will be kept. This can take time; you can cancel and run it again.","Rebuild"))return;
         preparing=true; preparationCancellation=new(); CancelButton.Visibility=Visibility.Visible; Busy.IsActive=true;
+        ShowActiveWorkBanner(rebuild ? "Rebuilding previews" : "Repairing missing previews", $"Working on {scope}. Pause anytime; completed previews stay saved.");
         try
         {
             await MaintainCache(async ()=>
             {
-                var progress=new Progress<long>(n=>DispatcherQueue.TryEnqueue(()=>Status.Text=$"{(rebuild ? "Rebuilding" : "Repairing")} previews · {n:N0} checked · {scope}"));
+                var progress=new Progress<long>(n=>DispatcherQueue.TryEnqueue(()=>
+                {
+                    var msg = $"{(rebuild ? "Rebuilding" : "Repairing")} previews · {n:N0} checked · {scope}";
+                    Status.Text = msg;
+                    ShowActiveWorkBanner(rebuild ? "Rebuilding previews" : "Repairing missing previews", msg);
+                }));
                 string message;
                 if(rebuild)
                 {
@@ -228,7 +261,7 @@ public sealed partial class MainWindow
             });
         }
         catch(OperationCanceledException) { Notify("Preview work paused. Completed previews are saved; retry Repair or Rebuild from Storage & previews."); }
-        finally { preparing=false; if(ready) { CancelButton.Visibility=Visibility.Collapsed; Busy.IsActive=false; Status.Text="Preview maintenance finished"; } }
+        finally { preparing=false; HideActiveWorkBanner(); if(ready) { CancelButton.Visibility=Visibility.Collapsed; Busy.IsActive=false; Status.Text="Preview maintenance finished"; } }
     }
     private async Task ClearScopedPreviews(string? id)
     {
@@ -236,7 +269,7 @@ public sealed partial class MainWindow
         var estimate=await cache!.InspectRemovalAsync(keys);
         var scope=id is null ? "all sources" : (await catalog.SourcesAsync()).First(s=>s.Id==id).RootPath;
         if(!await Confirm("Clear saved previews?",$"Remove {estimate.Count:N0} previews ({estimate.Bytes/1048576d:N1} MiB) for {scope}? Offline previews will be lost until the source reconnects. Originals, catalog, tags and albums remain intact.","Clear previews"))return;
-        await MaintainCache(async ()=> { var result=await cache.RemoveAsync(keys); DispatcherQueue.TryEnqueue(()=>Notify($"Cleared {result.Count:N0} previews. Originals and organization are intact.")); });
+        await MaintainCache(async ()=> { var result=await cache.RemoveAsync(keys); DispatcherQueue.TryEnqueue(()=>Notify($"Cleared {result.Count:N0} previews. Originals and organization are intact.")); }, "Clearing cached previews");
     }
     private async Task CleanUnusedPreviews()
     {
@@ -245,7 +278,7 @@ public sealed partial class MainWindow
         var estimate=await cache.InspectRemovalAsync(unused);
         if(estimate.Count==0) { Notify("No unused previews to clean up."); return; }
         if(!await Confirm("Clean unused previews?",$"Free {estimate.Bytes/1048576d:N1} MiB by removing {estimate.Count:N0} previews for older file versions or removed sources. Current previews, including offline sources, are retained.","Clean up"))return;
-        await MaintainCache(async ()=> { var result=await cache.RemoveAsync(unused); DispatcherQueue.TryEnqueue(()=>Notify($"Cleaned {result.Count:N0} unused previews · {result.Bytes/1048576d:N1} MiB freed.")); });
+        await MaintainCache(async ()=> { var result=await cache.RemoveAsync(unused); DispatcherQueue.TryEnqueue(()=>Notify($"Cleaned {result.Count:N0} unused previews · {result.Bytes/1048576d:N1} MiB freed.")); }, "Cleaning unused previews");
     }
 
     private async void ShowActivity(object sender,RoutedEventArgs e) => await Guard(async () =>

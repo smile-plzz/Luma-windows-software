@@ -7,7 +7,8 @@ Deliver Luma `v0.7.0` (under active stabilization freeze `D-4` toward `v1.0.0`) 
 - Zero open S1/S2 defects (`docs/assessment/FINDINGS.md`); all 12 core user journeys (`docs/assessment/JOURNEYS.md`) verified with tests and native UIA checks.
 - Fast on very large libraries (100k to 500k items) and honest on slow external HDDs.
 - Safe with user originals: scanning is read-only, local SQLite catalog and bounded persistent thumbnail cache live in `%LOCALAPPDATA%\Luma`.
-- Rich yet calm curation: multi-word tags & Tag Manager, duplicates finder, Smart Collections, Spacebar Quick Preview, photo stacks, Adaptive/Moments views, and privacy-first Map view.
+- Rich yet calm curation: multi-word tags & Tag Manager, duplicates finder, Smart Collections, direct opening in external Windows apps (`Enter` / double-click / Map **Open**), photo stacks, Adaptive/Moments views (with keyboard and hover parity), video duration pills, and privacy-first Map view backed by persistent SQLite (`metadata` + `ix_metadata_lookup`) and in-session memoization (`D-13`).
+- Transparent loading safety & Windows 11 polish (`D-14`): blocking `LoadingVeil` (`ProgressBar` + Cancel/Retry/Exit) on startup, single-instance `cache.lock` conflicts, and heavy mutations; rapid filter coalescing (`galleryRequestVersion` + deferred `GalleryResetVeil`); `ActiveWorkBanner` for background scan/repair; translucent `MicaKind.BaseAlt` sidebar with GPU hover zoom and `Segoe Fluent Icons`.
 - Clear user documentation (`docs/USER_GUIDE.md`, `docs/TROUBLESHOOTING.md`, `docs/KNOWN_LIMITS.md`) and in-app feedback loop (`F1` help + Settings issue link + structured `.github/ISSUE_TEMPLATE/`).
 
 ## Technology Stack

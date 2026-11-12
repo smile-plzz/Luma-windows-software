@@ -52,8 +52,9 @@ Encapsulates platform-specific Windows APIs:
 
 ### 2.3. Luma.App (`net8.0-windows10.0.19041.0`, self-contained win-x64)
 WinUI 3 desktop user interface and window management:
-- `MainWindow.xaml` / `MainWindow.xaml.cs`: Top-level window with Windows 11 Mica backdrop, collapsible sidebar/header, toolbar, search, and status bar.
-- `MainWindow.Gallery.cs`: Dual virtualized media gallery (`MediaGrid` Uniform + `JustifiedRowsList` Adaptive/Moments), stack expansion, live viewport time HUD, and filter chips.
+- `MainWindow.xaml` / `MainWindow.xaml.cs`: Top-level window with Windows 11 `MicaKind.BaseAlt` translucent sidebar tint, `Segoe Fluent Icons` toolbar/accordion chrome, collapsible sidebar/header, toolbar, search, and status bar.
+- `MainWindow.Progress.cs`: Blocking `LoadingVeil` + `ProgressBar` lock (`RunLockedAsync`) protecting startup, `cache.lock` single-instance detection, and heavy mutations; `ActiveWorkBanner` for background scan/repair; and `UISettings.AnimationsEnabled`-aware Composition animations (GPU `1.035x` hover zoom, thumbnail fade-in, `ThemeShadow` floating chrome, panel slides, chevron rotations).
+- `MainWindow.Gallery.cs`: Dual virtualized media gallery (`MediaGrid` Uniform + `JustifiedRowsList` Adaptive/Moments with keyboard/hover parity), `galleryRequestVersion` pre-cancellation coalescing, deferred `GalleryResetVeil`, stack expansion, live viewport time HUD, and filter chips.
 - `JustifiedLayout.cs`: Balanced aspect-aware justified row packing with optional relevance sizing (`Moments`).
 - `MainWindow.Map.cs` & `Assets/Map/map.html`: Privacy-first Map View with one-time session consent, offline coordinate cluster fallback, lazy zero-CDN OpenStreetMap slippy-tile viewer in `WebView2`, `catalogGeneration`-keyed SQLite/filter memoization, and direct external file handoff (`OpenMediaExternallyAsync`).
 - `MainWindow.Organization.cs`: Album/Smart Collection management, MRU quick-move destinations, conflict resolution, and transfer undo.

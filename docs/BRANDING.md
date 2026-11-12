@@ -4,9 +4,11 @@
 
 Product description: A local media gallery for Windows. Browse photos and videos on existing folders and drives, revisit your timeline, and keep your memories organized without moving your originals.
 
-The original icon combines layered photo cards, a mountain and sun, and an L monogram on a violet rounded square. `src/Luma.App/Assets/Luma.svg` is the editable source. `Luma.ico` includes 16, 24, 32, 48, 64, 128 and 256 pixel images and is embedded into the executable and used by the native window.
+The original icon combines layered photo cards, a mountain and sun, and an L monogram on a violet rounded square. `src/Luma.App/Assets/Luma.svg` is the editable source. `Luma.ico` includes 16, 24, 32, 48, 64, 128 and 256 pixel images (`37,539` bytes) and is embedded into `Luma.App.exe` and applied to the native window via `AppWindow.SetIcon`.
 
-Regenerate from the repository root with Python, Pillow and CairoSVG installed:
+Inside the WinUI 3 UI, toolbar chrome, navigation chevrons, sort direction arrows, and close buttons use `Segoe Fluent Icons` `FontIcon` glyphs paired with Windows 11 `MicaKind.BaseAlt` translucent sidebar surfaces (`App.xaml` `LumaSidebar`) and explicit `HighContrast` system color fallbacks.
+
+Regenerate `Luma.ico` from the repository root with Python, Pillow and CairoSVG installed:
 
 ```sh
 python scripts/Generate-Icon.py
