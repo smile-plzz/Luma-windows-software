@@ -6,13 +6,14 @@ public sealed partial class MainWindow
 {
     private MediaCard? contextCard;
     private void ExclusionMenuClosed(object sender,object e)=>contextCard=null;
-    private async void ExcludeFolder(object sender,RoutedEventArgs e)=>await ExcludeSelected("folder");
-    private async void ExcludeSource(object sender,RoutedEventArgs e)=>await ExcludeSelected("source");
-    private async void ExcludeType(object sender,RoutedEventArgs e)=>await ExcludeSelected("type");
+    private async void ExcludeFolder(object sender,RoutedEventArgs e)=>await Guard(()=>ExcludeSelected("folder"));
+    private async void ExcludeSource(object sender,RoutedEventArgs e)=>await Guard(()=>ExcludeSelected("source"));
+    private async void ExcludeType(object sender,RoutedEventArgs e)=>await Guard(()=>ExcludeSelected("type"));
     private async Task ExcludeSelected(string kind)
     {
         if(operation || scanning) { Notify("Pause the current work in Activity before changing exclusions."); return; }
-        var media=(contextCard ?? PrimarySelectedCard())?.Item.Media;if(media is null)return;
+        var media=(contextCard ?? PrimarySelectedCard())?.Item.Media;
+        if(media is null) { Notify("Select a file first to exclude its folder, source, or file type."); return; }
         var value=kind=="type" ? Path.GetExtension(media.RelativePath) : kind=="folder" ? Path.GetDirectoryName(media.RelativePath) ?? "" : "";
         if(kind=="folder" && value.Length==0)kind="source";
         await Guard(()=>ConfirmExclusion(new(kind,kind=="type" ? "" : media.SourceId,value)),true);
@@ -73,7 +74,7 @@ public sealed partial class MainWindow
                     await ConfirmExclusion(new(relative=="." ? "source" : "folder",source.Id,relative=="." ? "" : relative));
                 })));
             }
-            await dialog.ShowAsync();if(action is not null)await action();
+            await ShowDialogAsync(dialog);if(action is not null)await action();
         }
     }
 }

@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using Luma.Core;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Data;
@@ -386,11 +388,11 @@ public sealed partial class MainWindow
             queryCancellation?.Cancel(); queryCancellation = new(); var token = queryCancellation.Token;
             loadedStart = startOffset; ResumeNavigation.Visibility = loadedStart > 0 ? Visibility.Visible : Visibility.Collapsed;
             cursor = null; exhausted = false; loading = false; pendingLoadMore = false;
-            foreach (var card in cards) { card.Realized = false; card.Thumbnail = null; card.ThumbnailRequest?.Cancel(); card.ThumbnailRequest = null; }
+            foreach (var card in cards) card.Discard();
+            MediaGrid.ItemsSource = null;
+            JustifiedRowsList.ItemsSource = null;
             cards.Clear(); groups.Clear(); justifiedRows.Clear(); adaptiveSelectedCards.Clear();
             activeQuery = CurrentQuery();
-            if (Grouped) MediaGrid.ItemsSource = new CollectionViewSource { IsSourceGrouped = true, Source = groups }.View;
-            else MediaGrid.ItemsSource = cards;
             galleryScroll?.ChangeView(null, 0, null, true);
             adaptiveScroll?.ChangeView(null, 0, null, true);
             EmptyState.Visibility = Visibility.Collapsed; Busy.IsActive = true;
@@ -398,6 +400,9 @@ public sealed partial class MainWindow
 
             libraryTotal = (await Task.Run(() => catalog.SourceCountsAsync(token), token)).Values.Sum();
             token.ThrowIfCancellationRequested();
+            if (Grouped) MediaGrid.ItemsSource = new CollectionViewSource { IsSourceGrouped = true, Source = groups }.View;
+            else MediaGrid.ItemsSource = cards;
+            if (settings.LayoutMode != "Uniform") JustifiedRowsList.ItemsSource = justifiedRows;
             BuildFilterChips();
 
             // Render first page immediately for sub-second first paint
@@ -467,10 +472,6 @@ public sealed partial class MainWindow
             }
         }
 
-        if (settings.LayoutMode == "Uniform") MediaGrid.UpdateLayout();
-        else JustifiedRowsList.UpdateLayout();
-
-        TryRestore();
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, TryRestore);
     }
 
@@ -489,6 +490,7 @@ public sealed partial class MainWindow
         try
         {
             var page = await Task.Run(() => catalog.QueryAsync(query, ct), ct); ct.ThrowIfCancellationRequested();
+            if (generation != queryCancellation) return;
             var activeScroll = ActiveGalleryScroll();
             var preservedOffset = activeScroll?.VerticalOffset ?? 0;
             var hadScroll = isSubsequentPage && preservedOffset > 40;
@@ -642,6 +644,10 @@ public sealed partial class MainWindow
         if (e.ItemContainer.Tag is MediaCard previous && (e.InRecycleQueue || !ReferenceEquals(previous, e.Item)))
         { previous.Realized = false; previous.Thumbnail = null; previous.ThumbnailRequest?.Cancel(); previous.ThumbnailRequest = null; }
         e.ItemContainer.Tag = e.InRecycleQueue ? null : e.Item;
+        var a11yView = e.InRecycleQueue ? AccessibilityView.Raw : AccessibilityView.Content;
+        AutomationProperties.SetAccessibilityView(e.ItemContainer, a11yView);
+        if (e.ItemContainer.ContentTemplateRoot is DependencyObject rootObj)
+            AutomationProperties.SetAccessibilityView(rootObj, a11yView);
         if (e.Item is not MediaCard card) return;
         card.Realized = !e.InRecycleQueue;
         if (e.InRecycleQueue) { card.Thumbnail = null; return; }
@@ -661,6 +667,10 @@ public sealed partial class MainWindow
             }
         }
         e.ItemContainer.Tag = e.InRecycleQueue ? null : e.Item;
+        var a11yView = e.InRecycleQueue ? AccessibilityView.Raw : AccessibilityView.Content;
+        AutomationProperties.SetAccessibilityView(e.ItemContainer, a11yView);
+        if (e.ItemContainer.ContentTemplateRoot is DependencyObject rootObj)
+            AutomationProperties.SetAccessibilityView(rootObj, a11yView);
         if (e.Item is not GalleryRow row) return;
         foreach (var card in row.Items)
         {
@@ -673,11 +683,13 @@ public sealed partial class MainWindow
     private async Task LoadThumbnail(MediaCard card)
     {
         if (!ready || clearing || !card.Realized || card.ThumbnailRequest is not null || card.Thumbnail is not null || queryCancellation is null) return;
-        if (!DiskGuard.HasSufficientSpace()) return;
+        var lowSpace = !DiskGuard.HasSufficientSpace();
         var request = CancellationTokenSource.CreateLinkedTokenSource(queryCancellation.Token); card.ThumbnailRequest = request; var ct = request.Token;
         try
         {
-            var bytes = await UseCache(() => thumbnails!.GetAsync(card.Item.Media, 256, ct));
+            var bytes = lowSpace
+                ? await UseCache(() => thumbnails!.TryReadCachedAsync(card.Item.Media, 256, ct))
+                : await UseCache(() => thumbnails!.GetAsync(card.Item.Media, 256, ct));
             if (bytes is null || !card.Realized || ct.IsCancellationRequested) return;
             using var stream = new InMemoryRandomAccessStream();
             using (var writer = new DataWriter(stream.GetOutputStreamAt(0))) { writer.WriteBytes(bytes); await writer.StoreAsync(); await writer.FlushAsync(); }
@@ -718,10 +730,13 @@ public sealed partial class MainWindow
     private async void CardQuickFavoriteClick(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { DataContext: MediaCard card }) return;
-        var fav = !card.Item.Favorite;
-        await catalog.AnnotateAsync(card.Item.Media, fav, card.Item.Tags);
-        card.UpdateItem(card.Item with { Favorite = fav });
-        Notify(fav ? $"Added {card.Name} to Favorites." : $"Removed {card.Name} from Favorites.");
+        await Guard(async () =>
+        {
+            var fav = !card.Item.Favorite;
+            await catalog.AnnotateAsync(card.Item.Media, fav, card.Item.Tags);
+            card.UpdateItem(card.Item with { Favorite = fav });
+            Notify(fav ? $"Added {card.Name} to Favorites." : $"Removed {card.Name} from Favorites.");
+        });
     }
 
     private void CardStackBadgeClick(object sender, RoutedEventArgs e)
@@ -888,7 +903,15 @@ public sealed partial class MainWindow
 
     private async void SearchChanged(object sender, TextChangedEventArgs e)
     {
-        if (!ready || restoringPlace) return; searchCancellation?.Cancel(); var cts = new CancellationTokenSource(); searchCancellation = cts;
+        if (!ready || restoringPlace) return;
+        searchCancellation?.Cancel();
+        if (activeQuery is not null
+            && string.Equals(SearchBox.Text.Trim(), activeQuery.Search ?? "", StringComparison.Ordinal)
+            && string.Equals(FolderFilter.Text.Trim(), activeQuery.Folder ?? "", StringComparison.Ordinal))
+        {
+            return;
+        }
+        var cts = new CancellationTokenSource(); searchCancellation = cts;
         try { await Task.Delay(300, cts.Token); RecordRecentSearch(SearchBox.Text.Trim()); ClearDateRange(); await Guard(Refresh); } catch (OperationCanceledException) { }
     }
 
@@ -1169,6 +1192,7 @@ public sealed partial class MainWindow
 
     private async void UpdateEmptyState()
     {
+        var generation = queryCancellation;
         if (cards.Count > 0)
         {
             EmptyState.Visibility = Visibility.Collapsed;
@@ -1182,17 +1206,23 @@ public sealed partial class MainWindow
         EmptyExclusionsButton.Visibility = Visibility.Collapsed;
         EmptyStoreCodecButton.Visibility = Visibility.Collapsed;
 
-        var hasSources = Sources.Items.Count > 0;
+        // Index 0 in Sources is always the virtual "All sources" entry; > 1 means at least one registered source.
+        var hasSources = Sources.Items.Count > 1;
         var hasSearch = !string.IsNullOrWhiteSpace(SearchBox.Text);
         var hasActiveFilters = ActiveFilters.Children.Count > 0 || selectedMonth is not null || AlbumsBox.SelectedItem is not null;
         var exclusionsActive = false;
         try { exclusionsActive = (await catalog.ExclusionsAsync()).Count > 0; } catch { }
+        if (isClosing || generation != queryCancellation || cards.Count > 0)
+        {
+            if (cards.Count > 0) EmptyState.Visibility = Visibility.Collapsed;
+            return;
+        }
 
         if (!hasSources)
         {
             EmptyIcon.Glyph = "\uEB9F";
             EmptyTitle.Text = "A little room for memories";
-            EmptyText.Text = "Add a folder or drive to begin. If you already have a library, choose Reset to clear browsing filters.";
+            EmptyText.Text = "Add a folder or drive to begin (or drop a folder here). Scanning is strictly read-only, keeps originals untouched, and stores previews on this PC.";
             EmptyAddButton.Visibility = Visibility.Visible;
         }
         else if (hasSearch)
@@ -1221,7 +1251,7 @@ public sealed partial class MainWindow
         {
             EmptyIcon.Glyph = "\uE72E";
             EmptyTitle.Text = "Library media is hidden";
-            EmptyText.Text = "Exclusion rules are active for this view. You can review and restore hidden folders and file types.";
+            EmptyText.Text = "Exclusion rules are active for this view. You can review and restore hidden sources, folders, or file types.";
             EmptyExclusionsButton.Visibility = Visibility.Visible;
         }
         else
@@ -1246,20 +1276,18 @@ public sealed partial class MainWindow
     }
     private async void EmptyStateDrop(object sender, DragEventArgs e)
     {
-        if (e.DataView.Contains(StandardDataFormats.StorageItems))
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+        await Guard(async () =>
         {
             var items = await e.DataView.GetStorageItemsAsync();
             foreach (var item in items)
             {
                 if (item is StorageFolder folder)
                 {
-                    await Guard(async () =>
-                    {
-                        var source = await Task.Run(() => resolver.Register(folder.Path));
-                        await Scan(new[] { new SourceInfo(source.Id, source.RootPath, DateTime.UtcNow, true) }, reuseExisting: true);
-                    }, true);
+                    var source = await Task.Run(() => resolver.Register(folder.Path));
+                    await Scan(new[] { new SourceInfo(source.Id, source.RootPath, DateTime.UtcNow, true) }, reuseExisting: true);
                 }
             }
-        }
+        }, true);
     }
 }

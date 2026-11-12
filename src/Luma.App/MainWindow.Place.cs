@@ -56,13 +56,30 @@ public sealed partial class MainWindow
     }
     private (MediaCard? Card,double Inset) VisibleAnchor()
     {
-        foreach(var card in cards.Where(c=>c.Realized))
-            if(MediaGrid.ContainerFromItem(card) is FrameworkElement container)
-            {
-                var y=container.TransformToVisual(MediaGrid).TransformPoint(new Point(0,0)).Y;
-                if(y+container.ActualHeight>0 && y<MediaGrid.ActualHeight)return (card,y);
-            }
+        if (settings.LayoutMode == "Uniform")
+        {
+            var found = FindAnchorInHost(MediaGrid, cards.Where(c => c.Realized).Select(c => ((object)c, c)));
+            if (found is not null) return found.Value;
+        }
+        else
+        {
+            var found = FindAnchorInHost(JustifiedRowsList, justifiedRows.Where(r => r.Items.Count > 0).Select(r => ((object)r, r.Items[0])));
+            if (found is not null) return found.Value;
+        }
         return (cards.FirstOrDefault(),0);
+    }
+    private static (MediaCard Card, double Inset)? FindAnchorInHost(ListViewBase host, IEnumerable<(object ContainerItem, MediaCard Card)> items)
+    {
+        (MediaCard Card, double Inset)? partialTopFallback = null;
+        foreach (var (containerItem, card) in items)
+        {
+            if (host.ContainerFromItem(containerItem) is not FrameworkElement container) continue;
+            var y = container.TransformToVisual(host).TransformPoint(new Point(0, 0)).Y;
+            if (y >= 0 && y < host.ActualHeight) return (card, y);
+            if (partialTopFallback is null && y + container.ActualHeight > 0 && y < host.ActualHeight)
+                partialTopFallback = (card, y);
+        }
+        return partialTopFallback;
     }
     private void SchedulePlaceSave()
     {
@@ -108,21 +125,54 @@ public sealed partial class MainWindow
                 else message="Your previous item is no longer in this view. Showing the first available items.";
             }
             ready=true; await RefreshGallery(false,offset);
+            ViewHost.IsEnabled=true;
+            Notify(message);
             var anchor=cards.FirstOrDefault(c=>c.Item.Media.SourceId==place.AnchorSource && c.Item.Media.RelativePath==place.AnchorPath);
             if(anchor is not null)await PositionAnchor(anchor,double.IsFinite(place.Inset) ? Math.Clamp(place.Inset,-1000,1000) : 0);
-            Notify(message);
         }
         finally {restoringPlace=false;ViewHost.IsEnabled=true;ready=true;SchedulePlaceSave();}
     }
     private async Task PositionAnchor(MediaCard anchor,double inset)
     {
-        MediaGrid.UpdateLayout(); MediaGrid.ScrollIntoView(anchor,ScrollIntoViewAlignment.Leading);
-        await Task.Delay(100); MediaGrid.UpdateLayout();
-        if(galleryScroll is not null && MediaGrid.ContainerFromItem(anchor) is FrameworkElement container)
+        if (settings.LayoutMode == "Uniform")
         {
-            var y=container.TransformToVisual(MediaGrid).TransformPoint(new Point(0,0)).Y;
-            galleryScroll.ChangeView(null,Math.Max(0,galleryScroll.VerticalOffset+y-inset),null,true);
-            await Task.Delay(100);
+            await PositionItemInHostAsync(MediaGrid, () => galleryScroll ??= Descendant<ScrollViewer>(MediaGrid), anchor, inset);
+        }
+        else
+        {
+            var targetRow = justifiedRows.FirstOrDefault(r => r.Items.Contains(anchor));
+            if (targetRow is null) return;
+            EnsureAdaptiveScrollHooked();
+            await PositionItemInHostAsync(JustifiedRowsList, () => adaptiveScroll ??= Descendant<ScrollViewer>(JustifiedRowsList), targetRow, inset);
+        }
+    }
+    private static async Task PositionItemInHostAsync(ListViewBase host, Func<ScrollViewer?> resolveScroll, object item, double inset)
+    {
+        host.UpdateLayout();
+        host.ScrollIntoView(item, ScrollIntoViewAlignment.Leading);
+        ScrollViewer? scroll = null;
+        FrameworkElement? container = null;
+        for (var wait = 0; wait < 6; wait++)
+        {
+            await Task.Delay(50);
+            host.UpdateLayout();
+            scroll = resolveScroll();
+            container = host.ContainerFromItem(item) as FrameworkElement;
+            if (scroll is not null && container is not null) break;
+        }
+        if (scroll is null || container is null) return;
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var y = container.TransformToVisual(host).TransformPoint(new Point(0, 0)).Y;
+            if (Math.Abs(y - inset) <= 4) break;
+            var target = Math.Clamp(scroll.VerticalOffset + y - inset, 0, Math.Max(0, scroll.ScrollableHeight));
+            if (Math.Abs(target - scroll.VerticalOffset) <= 1) break;
+            scroll.ChangeView(null, target, null, true);
+            await Task.Delay(60);
+            host.UpdateLayout();
+            container = host.ContainerFromItem(item) as FrameworkElement;
+            if (container is null) break;
         }
     }
     private void SetMonth(DateTime month)

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml;
 using System.Xml.Linq;
 
 namespace Luma.Core;
@@ -921,7 +922,9 @@ public static partial class MinimalGpsExtractor
 
         try
         {
-            var doc = XDocument.Parse(slice, LoadOptions.None);
+            using var stringReader = new StringReader(slice);
+            using var xmlReader = XmlReader.Create(stringReader, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null });
+            var doc = XDocument.Load(xmlReader, LoadOptions.None);
             string? FindXmpValue(string localName)
             {
                 foreach (var el in doc.Descendants())

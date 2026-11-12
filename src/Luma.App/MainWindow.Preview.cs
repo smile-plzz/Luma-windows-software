@@ -64,11 +64,13 @@ public sealed partial class MainWindow
         PreviewFavoriteButton.Content = card.Item.Favorite ? "★ (F)" : "☆ (F)";
         PreviewMapButton.Visibility = card.Item.Metadata?.Latitude is not null ? Visibility.Visible : Visibility.Collapsed;
 
-        // Offline status indicator
+        // Offline and video playback cues
         PreviewOfflineBadge.Visibility = card.Item.Media.IsAvailable ? Visibility.Collapsed : Visibility.Visible;
+        PreviewVideoBadge.Visibility = card.Item.Media.Kind == "video" ? Visibility.Visible : Visibility.Collapsed;
 
         // Populate metadata sidebar details cleanly from cached item (works offline)
         PopulatePreviewMetadata(card);
+        PreviewCloseButton.Focus(FocusState.Programmatic);
 
         // Immediate display: show existing thumbnail as immediate preview
         PreviewImage.Source = card.Thumbnail;
@@ -273,7 +275,7 @@ public sealed partial class MainWindow
         }
     }
 
-    private async void PreviewToggleFavorite(object sender, RoutedEventArgs e) => await DoPreviewToggleFavorite();
+    private async void PreviewToggleFavorite(object sender, RoutedEventArgs e) => await Guard(DoPreviewToggleFavorite, true);
 
     private async Task DoPreviewToggleFavorite()
     {
@@ -287,7 +289,7 @@ public sealed partial class MainWindow
         Notify(newFav ? "Added to Favorites." : "Removed from Favorites.");
     }
 
-    private async void PreviewQuickTag(object sender, RoutedEventArgs e) => await DoPreviewQuickTag();
+    private async void PreviewQuickTag(object sender, RoutedEventArgs e) => await Guard(DoPreviewQuickTag, true);
 
     private async Task DoPreviewQuickTag()
     {
@@ -302,7 +304,7 @@ public sealed partial class MainWindow
         Notify("Tags updated.");
     }
 
-    private async void PreviewQuickMove(object sender, RoutedEventArgs e) => await DoPreviewQuickMove();
+    private async void PreviewQuickMove(object sender, RoutedEventArgs e) => await Guard(DoPreviewQuickMove, true);
 
     private async Task DoPreviewQuickMove()
     {
@@ -328,7 +330,7 @@ public sealed partial class MainWindow
         }
     }
 
-    private async void PreviewDelete(object sender, RoutedEventArgs e) => await DoPreviewDelete();
+    private async void PreviewDelete(object sender, RoutedEventArgs e) => await Guard(DoPreviewDelete, true);
 
     private async Task DoPreviewDelete()
     {
@@ -336,10 +338,20 @@ public sealed partial class MainWindow
         var card = previewingCard;
         if (!await Confirm("Delete original?", $"Send {card.Name} to the Recycle Bin?", "Continue")) return;
 
+        var original = Resolve(card.Item.Media);
         var currentIndex = cards.IndexOf(card);
-        ShellFiles.Run(Handle, 3, new[] { Resolve(card.Item.Media) });
-        await RescanCurrent();
+        if (!ShellFiles.Run(Handle, 3, new[] { original }) || File.Exists(original))
+        {
+            Notify("Delete cancelled. Original stays untouched.");
+            PreviewCloseButton.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        await catalog.RemoveMediaItemsAsync(new[] { card.Item.Media });
+        await LoadAlbums();
+        await Refresh();
         previewMutatedGallery = false;
+        Notify($"Moved {card.Name} to the Recycle Bin.");
         if (PreviewAutoAdvanceToggle.IsChecked == true && cards.Count > 0)
         {
             var nextIdx = Math.Clamp(currentIndex, 0, cards.Count - 1);

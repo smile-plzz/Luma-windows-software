@@ -197,4 +197,72 @@ public sealed class WindowsTests
         }
         finally { Directory.Delete(root, true); }
     }
+
+    [Fact]
+    public async Task BanglaUnicodeAndExtendedLongPath_ScanMetadataAndThumbnailWorkSafely()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Luma-long-" + Guid.NewGuid());
+        var deepSegment = Path.Combine(
+            "বাংলা_সংস্কৃতি_অ্যালবাম",
+            new string('a', 90),
+            new string('b', 90),
+            new string('c', 90));
+        var longFolder = Path.Combine(root, deepSegment);
+        Directory.CreateDirectory(@"\\?\" + longFolder);
+        try
+        {
+            var bmpName = "ঢাকা_ছবি_🎉.bmp";
+            var fullExtended = @"\\?\" + Path.Combine(longFolder, bmpName);
+            await using (var writer = new BinaryWriter(File.Create(fullExtended)))
+            {
+                writer.Write((ushort)0x4D42); writer.Write(54 + 64 * 64 * 3); writer.Write(0); writer.Write(54);
+                writer.Write(40); writer.Write(64); writer.Write(64); writer.Write((ushort)1); writer.Write((ushort)24);
+                writer.Write(0); writer.Write(64 * 64 * 3); writer.Write(0); writer.Write(0); writer.Write(0); writer.Write(0);
+                for (int i = 0; i < 64 * 64 * 3; i++) writer.Write((byte)140);
+            }
+
+            Assert.True(Path.Combine(longFolder, bmpName).Length > 260, "Path must exceed legacy MAX_PATH 260 limit.");
+            var resolver = new WindowsSourceResolver();
+            var reg = resolver.Register(root);
+            var catalog = new MediaCache(Path.Combine(root, "catalog.db"), resolver);
+            await catalog.InitializeAsync();
+            var scanned = await catalog.ScanAsync(reg.Id, reg.RootPath);
+            Assert.Equal(1, scanned);
+
+            var query = await catalog.QueryAsync(new LibraryQuery(SourceId: reg.Id, Search: "ঢাকা"));
+            Assert.Equal(1, query.Total);
+        }
+        finally
+        {
+            try { Directory.Delete(@"\\?\" + root, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task CorruptAndZeroByteFiles_DoNotThrowUnhandledExceptions()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Luma-corrupt-media-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            var emptyJpg = Path.Combine(root, "empty.jpg");
+            var junkPng = Path.Combine(root, "corrupt.png");
+            await File.WriteAllBytesAsync(emptyJpg, Array.Empty<byte>());
+            await File.WriteAllBytesAsync(junkPng, [0x01, 0xFF, 0x00, 0x42, 0x99]);
+
+            var reader = new WindowsMetadataReader();
+            var emptyMeta = await reader.ReadAsync(emptyJpg, "photo", CancellationToken.None);
+            var junkMeta = await reader.ReadAsync(junkPng, "photo", CancellationToken.None);
+            Assert.NotNull(emptyMeta);
+            Assert.NotNull(junkMeta);
+
+            var thumbGen = new WindowsThumbnailGenerator();
+            _ = await thumbGen.GenerateAsync(emptyJpg, 256, CancellationToken.None);
+            _ = await thumbGen.GenerateAsync(junkPng, 256, CancellationToken.None);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
 }

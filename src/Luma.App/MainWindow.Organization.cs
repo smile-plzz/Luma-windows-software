@@ -139,7 +139,7 @@ public sealed partial class MainWindow
         if (albums.Count == 0) { Notify("Create an album in the sidebar first."); return; }
         var picker = new ComboBox { ItemsSource = albums, SelectedIndex = 0, MinWidth = 280 };
         var dialog = new ContentDialog { RequestedTheme = Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = $"Add {items.Length} items to album", Content = picker, PrimaryButtonText = "Add", CloseButtonText = "Cancel" };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (await ShowDialogAsync(dialog) != ContentDialogResult.Primary) return;
         await catalog.SetAlbumItemsAsync(((Album)picker.SelectedItem).Id, items, true); await LoadAlbums(); Notify("Added to album. Originals stayed in place.");
     }, true);
 
@@ -288,7 +288,7 @@ public sealed partial class MainWindow
         bool browseOther = false;
         var dialog = new ContentDialog { RequestedTheme = Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = title, Content = panel, PrimaryButtonText = "Use selected", SecondaryButtonText = "Browse…", CloseButtonText = "Cancel" };
         dialog.SecondaryButtonClick += (_, _) => { browseOther = true; };
-        var res = await dialog.ShowAsync();
+        var res = await ShowDialogAsync(dialog);
         if (browseOther) return await PickFolder();
         if (res != ContentDialogResult.Primary) return null;
         return list.SelectedItem as string;
@@ -338,7 +338,7 @@ public sealed partial class MainWindow
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
         };
-        if (await confirmDialog.ShowAsync() != ContentDialogResult.Primary) return false;
+        if (await ShowDialogAsync(confirmDialog) != ContentDialogResult.Primary) return false;
 
         var conflictMode = conflictPicker.SelectedIndex == 1 ? TransferConflictMode.Rename : TransferConflictMode.Skip;
         RecordRecentDestination(destination);
@@ -361,7 +361,13 @@ public sealed partial class MainWindow
             {
                 if (scanCancellation.IsCancellationRequested) break;
                 var path = paths[index]; var descriptor = media.Length == paths.Length ? media[index] : null;
-                var original = new FileInfo(path); var length = original.Length; var ticks = original.LastWriteTimeUtc.Ticks;
+                var original = new FileInfo(path);
+                if (!original.Exists)
+                {
+                    reports.Add(new TransferResult(path, Path.Combine(destination, Path.GetFileName(path)), false, false, "Original file is no longer present on disk."));
+                    continue;
+                }
+                var length = original.Length; var ticks = original.LastWriteTimeUtc.Ticks;
                 var target = Path.Combine(destination, Path.GetFileName(path));
                 bool Valid() => resolver.ResolveRoot(destinationIdentity.Id) is not null && (descriptor is null ? new FileInfo(path) is var f && f.Exists && f.Length == length && f.LastWriteTimeUtc.Ticks == ticks : resolver.ResolveRoot(descriptor.SourceId) is string r && SourcePaths.Combine(r, descriptor.RelativePath).Equals(path, StringComparison.OrdinalIgnoreCase) && MediaCache.VersionMatches(path, descriptor));
                 Status.Text = $"{(move ? "Moving" : "Copying")} {index + 1:N0} / {paths.Length:N0}";
@@ -423,29 +429,76 @@ public sealed partial class MainWindow
             IsPrimaryButtonEnabled = movedItems.Length > 0,
             CloseButtonText = "Close"
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary || movedItems.Length == 0) return;
+        if (await ShowDialogAsync(dialog) != ContentDialogResult.Primary || movedItems.Length == 0) return;
 
-        int undone = 0;
+        int undone = 0, skippedOffline = 0, relocationErrors = 0;
         var roots = await catalog.SourcesAsync();
+        (string SourceId, string RelativePath)? MatchRegisteredRoot(string fullPath)
+        {
+            foreach (var src in roots)
+            {
+                var rPath = resolver.ResolveRoot(src.Id);
+                if (rPath is null) continue;
+                var normalizedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rPath)) + Path.DirectorySeparatorChar;
+                var normalizedFile = Path.GetFullPath(fullPath);
+                if (normalizedFile.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+                    return (src.Id, Path.GetRelativePath(normalizedRoot, normalizedFile));
+            }
+            return null;
+        }
+
+        var remaining = reports.ToList();
         foreach (var item in movedItems)
         {
+            var srcRoot = Path.GetPathRoot(item.Source);
+            if (string.IsNullOrWhiteSpace(srcRoot) || !Directory.Exists(srcRoot))
+            {
+                skippedOffline++;
+                continue;
+            }
+            var destMatch = MatchRegisteredRoot(item.Destination);
+            var origMatch = MatchRegisteredRoot(item.Source);
+            var catalogEntry = destMatch is { } dm ? await catalog.GetItemAsync(dm.SourceId, dm.RelativePath) : null;
+
             var destDir = Path.GetDirectoryName(item.Source)!;
             Directory.CreateDirectory(destDir);
-            var info = new FileInfo(item.Destination);
             var rev = await Task.Run(() => FileTransfer.RunAsync(item.Destination, item.Source, true, () => File.Exists(item.Destination), CancellationToken.None));
             if (rev.Moved)
             {
                 undone++;
-                // Re-scan affected source roots to keep catalog consistent
-                foreach (var src in roots)
+                remaining.Remove(item);
+                if (catalogEntry is not null && origMatch is { } om)
                 {
-                    var rPath = resolver.ResolveRoot(src.Id);
-                    if (rPath is not null && (item.Source.StartsWith(rPath, StringComparison.OrdinalIgnoreCase) || item.Destination.StartsWith(rPath, StringComparison.OrdinalIgnoreCase)))
-                        await Task.Run(() => catalog.ScanAsync(src.Id, rPath));
+                    try
+                    {
+                        var info = new FileInfo(item.Source);
+                        await catalog.RelocateAsync(catalogEntry.Media, catalogEntry.Media with
+                        {
+                            SourceId = om.SourceId,
+                            RelativePath = om.RelativePath,
+                            Length = info.Length,
+                            ModifiedTicks = info.LastWriteTimeUtc.Ticks,
+                            IsAvailable = true
+                        });
+                    }
+                    catch { relocationErrors++; }
+                }
+                else
+                {
+                    foreach (var src in roots)
+                    {
+                        var rPath = resolver.ResolveRoot(src.Id);
+                        if (rPath is not null && (item.Source.StartsWith(rPath, StringComparison.OrdinalIgnoreCase) || item.Destination.StartsWith(rPath, StringComparison.OrdinalIgnoreCase)))
+                            await Task.Run(() => catalog.ScanAsync(src.Id, rPath));
+                    }
                 }
             }
         }
+        try { await File.WriteAllTextAsync(log, JsonSerializer.Serialize(remaining, new JsonSerializerOptions { WriteIndented = true })); } catch { }
         await LoadSources(); await LoadAlbums(); await Refresh();
-        Notify($"Reversed {undone:N0} of {movedItems.Length:N0} moved file(s) back to original locations.");
+        var undoNote = $"Reversed {undone:N0} of {movedItems.Length:N0} moved file(s) with saved tags and albums preserved.";
+        if (skippedOffline > 0) undoNote += $" {skippedOffline:N0} skipped because destination drive is disconnected.";
+        if (relocationErrors > 0) undoNote += $" {relocationErrors:N0} catalog link(s) could not be updated; refresh those sources.";
+        Notify(undoNote, skippedOffline > 0 || relocationErrors > 0);
     }, true);
 }

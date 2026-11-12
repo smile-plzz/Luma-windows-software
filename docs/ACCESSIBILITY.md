@@ -24,9 +24,10 @@ Luma supports full keyboard control across all interactive views:
 
 | Shortcut | Action | Scope |
 |---|---|---|
+| `F1` | Open Keyboard shortcuts & help dialog | Global |
 | `Space` | Toggle Quick Preview overlay (outside Select mode) | Gallery |
-| `Esc` | Close Preview / Map overlay or Clear current selection | Global |
-| `Enter` | Open selected media in default Windows handler | Gallery |
+| `Space` / `Esc` | Close Quick Preview / Map overlay or Clear current selection | Global |
+| `Enter` | Open selected media in default Windows handler (plays videos) | Gallery / Preview |
 | `Left` / `Right` Arrow | Previous / Next media item | Preview Overlay |
 | `F` / `T` / `M` / `I` | Toggle Favorite / Edit tags / Move to folder / Details sidebar | Preview Overlay |
 | `Ctrl+B` | Toggle collapsible navigation sidebar | Global |

@@ -10,8 +10,8 @@ Restoration also works with disconnected drives and cached previews. Removed sou
 
 ## Long imports
 
-- **Step 1 of 2 — Finding media:** files examined this pass, media records saved, folders completed, inaccessible folders, current source/folder, and elapsed time. Discovery has no percentage because the total is not yet known. Completed folder counts include reused checkpoints.
-- **Step 2 of 2 — Reading dates:** known pending total, checked files, committed metadata updates and skipped unavailable/changed files. The progress bar reflects checked files, not a claim that every file has a capture date. Cached, unchanged metadata is not read again.
+- **Step 1 of 2, Finding media:** files examined this pass, media records saved, folders completed, inaccessible folders, current source/folder, and elapsed time. Discovery has no percentage because the total is not yet known. Completed folder counts include reused checkpoints.
+- **Step 2 of 2, Reading dates:** known pending total, checked files, committed metadata updates and skipped unavailable/changed files. The progress bar reflects checked files, not a claim that every file has a capture date. Cached, unchanged metadata is not read again.
 
 Hover over the status or open **Activity** for the full path and details. Activity reports how long no new update has arrived; a slow drive or codec call can delay cancellation. **Pause** requests a safe stop. Discovery resumes through Activity; date reading resumes through Manage sources → More → Refresh metadata. Completed metadata batches are retained. The saved gallery remains browsable during work.
 

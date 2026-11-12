@@ -21,7 +21,7 @@ public sealed partial class MediaCache
         while (await reader.ReadAsync(ct))
         {
             var raw = reader.GetString(0);
-            var parts = raw.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var parts = raw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             foreach (var part in parts.Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 counts[part] = counts.GetValueOrDefault(part, 0) + 1;
@@ -57,7 +57,7 @@ public sealed partial class MediaCache
                 var rPath = reader.GetString(1);
                 var raw = reader.GetString(2);
 
-                var parts = raw.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                var parts = raw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                     .Select(p => string.Equals(p, oldTag, StringComparison.OrdinalIgnoreCase) ? newTag : p)
                     .Where(p => !string.IsNullOrWhiteSpace(p))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -123,7 +123,7 @@ public sealed partial class MediaCache
         var sTags = setCmd.Parameters.Add("$t", SqliteType.Text);
         setCmd.Prepare();
 
-        char[] separators = [',', ';', ' '];
+        char[] separators = [',', ';'];
         foreach (var item in media)
         {
             string currentTags = "";

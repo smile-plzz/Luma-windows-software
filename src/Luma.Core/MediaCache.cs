@@ -8,6 +8,7 @@ namespace Luma.Core;
 
 public sealed record CachedMedia(string SourceId, string RelativePath, long Length, long ModifiedTicks, string Kind, bool IsAvailable);
 public sealed record SourceInfo(string Id, string RootPath, DateTime LastSeenUtc, bool IsOnline);
+public enum CatalogRepairOutcome { RestoredFromBackup, ReinitializedEmpty, Failed }
 
 /// <summary>Persistent metadata for removable media. Database lives on the PC, never on the drive.</summary>
 public sealed partial class MediaCache(string databasePath, ISourceResolver? sourceResolver = null)
@@ -115,12 +116,17 @@ public sealed partial class MediaCache(string databasePath, ISourceResolver? sou
         }
     }
 
-    public async Task<bool> RepairCatalogAsync(CancellationToken ct = default)
+    public async Task<bool> RepairCatalogAsync(CancellationToken ct = default) =>
+        await RepairCatalogDetailedAsync(ct) != CatalogRepairOutcome.Failed;
+
+    public async Task<CatalogRepairOutcome> RepairCatalogDetailedAsync(CancellationToken ct = default)
     {
         try
         {
             SqliteConnection.ClearAllPools();
             var backupPath = databasePath + ".bak";
+            var walFile = databasePath + "-wal";
+            var shmFile = databasePath + "-shm";
             var corruptArchive = Path.Combine(Path.GetDirectoryName(databasePath)!, $"catalog-corrupt-{DateTime.UtcNow:yyyyMMddHHmmss}.db");
 
             if (File.Exists(databasePath))
@@ -130,28 +136,63 @@ public sealed partial class MediaCache(string databasePath, ISourceResolver? sou
 
             if (File.Exists(backupPath))
             {
+                if (File.Exists(walFile)) File.Delete(walFile);
+                if (File.Exists(shmFile)) File.Delete(shmFile);
                 File.Copy(backupPath, databasePath, true);
                 if (await QuickCheckAsync(ct))
                 {
                     await InitializeAsync(ct);
-                    return true;
+                    return CatalogRepairOutcome.RestoredFromBackup;
                 }
             }
 
-            // If backup is missing or damaged, delete damaged database and initialize fresh schema
+            // If backup is missing or damaged, remove damaged files and initialize a fresh empty schema
+            SqliteConnection.ClearAllPools();
             if (File.Exists(databasePath)) File.Delete(databasePath);
-            var walFile = databasePath + "-wal";
-            var shmFile = databasePath + "-shm";
             if (File.Exists(walFile)) File.Delete(walFile);
             if (File.Exists(shmFile)) File.Delete(shmFile);
 
             await InitializeAsync(ct);
-            return true;
+            return CatalogRepairOutcome.ReinitializedEmpty;
         }
         catch
         {
-            return false;
+            return CatalogRepairOutcome.Failed;
         }
+    }
+
+    public async Task RemoveMediaItemsAsync(IEnumerable<CachedMedia> items, CancellationToken ct = default)
+    {
+        var list = items.ToList();
+        if (list.Count == 0) return;
+        using var lease = IndexingLease();
+        await using var db = await OpenConfiguredConnectionAsync(ct);
+        await using var tx = (SqliteTransaction)await db.BeginTransactionAsync(ct);
+        await using var cmd = db.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "DELETE FROM media WHERE source_id=$source AND relative_path=$path";
+        var pSource = cmd.Parameters.Add("$source", SqliteType.Text);
+        var pPath = cmd.Parameters.Add("$path", SqliteType.Text);
+        cmd.Prepare();
+        foreach (var item in list)
+        {
+            pSource.Value = item.SourceId;
+            pPath.Value = item.RelativePath;
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        await tx.CommitAsync(ct);
+    }
+
+    public async Task ResetCatalogAsync(CancellationToken ct = default)
+    {
+        using var lease = IndexingLease();
+        SqliteConnection.ClearAllPools();
+        foreach (var suffix in new[] { "", "-wal", "-shm", ".bak" })
+        {
+            var path = databasePath + suffix;
+            if (File.Exists(path)) File.Delete(path);
+        }
+        await InitializeAsync(ct);
     }
 
     public async Task InitializeAsync(CancellationToken ct = default)

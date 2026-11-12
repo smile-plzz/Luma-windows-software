@@ -14,7 +14,7 @@
    <KeyboardAccelerator Key="C" Modifiers="Control" Invoked="CopyShortcut"/><KeyboardAccelerator Key="X" Modifiers="Control" Invoked="CutShortcut"/><KeyboardAccelerator Key="V" Modifiers="Control" Invoked="PasteShortcut"/><KeyboardAccelerator Key="A" Modifiers="Control" Invoked="SelectShortcut"/><KeyboardAccelerator Key="Delete" Invoked="DeleteShortcut"/><KeyboardAccelerator Key="F2" Invoked="RenameShortcut"/>
    <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="SearchShortcut"/><KeyboardAccelerator Key="B" Modifiers="Control" Invoked="ToggleSidebarShortcut"/><KeyboardAccelerator Key="H" Modifiers="Control" Invoked="ToggleHeaderShortcut"/>
    <KeyboardAccelerator Key="Left" Modifiers="Menu" Invoked="BackHistoryShortcut"/><KeyboardAccelerator Key="Home" Invoked="ScrollTopShortcut"/><KeyboardAccelerator Key="End" Invoked="ScrollBottomShortcut"/>
-   <KeyboardAccelerator Key="F5" Invoked="RefreshShortcut"/><KeyboardAccelerator Key="Enter" Invoked="OpenShortcut"/><KeyboardAccelerator Key="Escape" Invoked="EscapeShortcut"/>
+   <KeyboardAccelerator Key="F5" Invoked="RefreshShortcut"/><KeyboardAccelerator Key="Enter" Invoked="OpenShortcut"/><KeyboardAccelerator Key="Escape" Invoked="EscapeShortcut"/><KeyboardAccelerator Key="F1" Invoked="HelpShortcut"/>
   </Grid.KeyboardAccelerators>
   <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="224"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
 
@@ -161,6 +161,10 @@
      <MenuFlyoutItem Text="Save view as Smart Collection…" Click="SaveCurrentAsSmartCollection"/>
      <MenuFlyoutSeparator/>
      <MenuFlyoutItem Text="Review / Undo last transfer…" Click="ReviewLastTransfer"/>
+     <MenuFlyoutSeparator/>
+     <MenuFlyoutItem Text="Exclude selected folder…" Click="ExcludeFolder"/>
+     <MenuFlyoutItem Text="Exclude selected source…" Click="ExcludeSource"/>
+     <MenuFlyoutItem Text="Exclude selected file type…" Click="ExcludeType"/>
     </MenuFlyout></Button.Flyout></Button>
     <ToggleButton x:Name="InspectorToggle" AutomationProperties.AutomationId="InspectorToggle" Content="Details" ToolTipService.ToolTip="Show file details" Checked="InspectorChanged" Unchecked="InspectorChanged"/>
    </StackPanel>
@@ -261,8 +265,8 @@
     <!-- Empty State -->
     <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="440" AllowDrop="True" DragOver="EmptyStateDragOver" Drop="EmptyStateDrop">
      <FontIcon x:Name="EmptyIcon" Glyph="&#xEB9F;" FontSize="48" Opacity="0.35" HorizontalAlignment="Center"/>
-     <TextBlock x:Name="EmptyTitle" Text="Your moments belong here" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"/>
-     <TextBlock x:Name="EmptyText" Text="Add a folder or drive. Your originals stay where they belong." TextWrapping="Wrap" TextAlignment="Center" Opacity="0.65" FontSize="13" MaxWidth="380"/>
+     <TextBlock x:Name="EmptyTitle" Text="A little room for memories" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"/>
+     <TextBlock x:Name="EmptyText" Text="Add a folder or drive to begin. Originals stay untouched." TextWrapping="Wrap" TextAlignment="Center" Opacity="0.65" FontSize="13" MaxWidth="380"/>
      <StackPanel x:Name="EmptyActions" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
       <Button x:Name="EmptyAddButton" Content="Add folder or drive" Click="AddSource" Visibility="Collapsed"/>
       <Button x:Name="EmptyResetButton" Content="Reset all filters" Click="ResetFiltersAction" Visibility="Collapsed"/>
@@ -328,6 +332,9 @@
      <Border x:Name="PreviewOfflineBadge" Background="#AAFF8800" CornerRadius="4" Padding="6,2" Visibility="Collapsed">
       <TextBlock Text="Original offline · Cached preview" FontSize="11" Foreground="Black" FontWeight="Medium"/>
      </Border>
+     <Border x:Name="PreviewVideoBadge" Background="#33FFFFFF" CornerRadius="4" Padding="8,2" Visibility="Collapsed">
+      <TextBlock Text="Video frame · Press Enter or Open to play in default app" FontSize="11" Foreground="White"/>
+     </Border>
     </StackPanel>
     <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
      <Button x:Name="PreviewFavoriteButton" Content="☆ (F)" Foreground="White" Click="PreviewToggleFavorite" ToolTipService.ToolTip="Toggle favorite (F)"/>
@@ -337,7 +344,7 @@
      <Button Content="Delete" Foreground="#FCA5A5" Click="PreviewDelete" ToolTipService.ToolTip="Delete to Recycle Bin (Del)"/>
      <ToggleButton x:Name="PreviewAutoAdvanceToggle" Content="Auto-next" Foreground="White" IsChecked="True" ToolTipService.ToolTip="Automatically step to next item after Move or Delete"/>
      <Button x:Name="PreviewInspectorToggle" Content="ℹ Details" Foreground="White" Click="TogglePreviewInspector" ToolTipService.ToolTip="Show/hide metadata details (I)"/>
-     <Button Content="✕ Close" Foreground="White" Click="ClosePreview" ToolTipService.ToolTip="Close preview (Space or Esc)"/>
+     <Button x:Name="PreviewCloseButton" Content="✕ Close" Foreground="White" Click="ClosePreview" ToolTipService.ToolTip="Close preview (Space or Esc)"/>
     </StackPanel>
    </Grid>
    <ScrollViewer Grid.Row="1" Grid.Column="0" x:Name="PreviewScroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" ZoomMode="Enabled" MinZoomFactor="1.0" MaxZoomFactor="5.0" DoubleTapped="PreviewScroller_DoubleTapped">

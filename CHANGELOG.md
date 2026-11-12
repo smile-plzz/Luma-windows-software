@@ -12,7 +12,24 @@ The format is based on Keep a Changelog. Plain language, no em-dashes.
 - Packaging: Per-user installer (Inno Setup / WiX), automated CI release pipeline, winget and Scoop manifests, code signing integration.
 - Verification: Independent verification sign-off across all release candidates.
 
-## [0.7.0] - 2026-11-11
+## [0.7.0] - 2026-11-12
+
+### Fixed (Stabilization Audit & Trust Hardening)
+- Fixed first-run empty state check (`Sources.Items.Count > 1`) so brand-new installs clearly show `"A little room for memories"` and the primary **Add folder or drive** prompt, while fully excluded views show `"Library media is hidden"` with quick access to **Manage exclusions...**.
+- Fixed multi-word tag splitting (`TagManagement.cs`) by splitting exclusively on commas and semicolons rather than spaces (`"Family Trip"` now stays intact across counts, rename/merge, and bulk tagging).
+- Fixed search tokenization (`LibraryQueries.ParseSearch`) to support quoted multi-word terms (`location:"New York"`, `tag:"Family Trip"`, `folder:"2025/Trips"`) and multiple combined `tag:` / `-tag:` filters.
+- Fixed catalog repair honesty (`RepairCatalogDetailedAsync`): cleans stale `-wal`/`-shm` sidecars before restoring `.bak` backups and accurately distinguishes a restored backup from an empty schema reinitialization.
+- Fixed `MainWindow.Guard` to redact personal folder paths via `PathRedactor.Redact` in `last-error.txt`, matching `crash.log`, and wrapped previously unguarded `async void` action handlers safely.
+- Fixed `Delete()` and Quick Preview `DoPreviewDelete()` to honor cancelled Windows Recycle Bin dialogs without advancing or triggering unnecessary full-library rescans, using targeted catalog cleanup upon confirmed deletion.
+- Fixed single/batch Rename (`ValidateWindowsFileName`) to block Windows reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`), handle case-only NTFS renames safely, confirm extension edits/removals, and separate catalog sync warnings from skipped collisions.
+- Fixed **Undo move** (`ReviewLastTransfer`) to check destination drive availability before creating folders and preserve tags, favorites, and virtual albums via `MediaCache.RelocateAsync`.
+- Fixed `LoadThumbnail` under low disk space (`< 500 MB` free) so already-cached `.thumb` previews remain readable offline (`TryReadCachedAsync`) while preview writers pause cleanly.
+- Fixed `VisibleAnchor` and `PositionAnchor` to save and restore browsing scroll position in **Adaptive** and **Moments** layouts (`JustifiedRowsList`) as well as Grid view, preferring unclipped top items so position restore settles cleanly across restarts, and prevented delayed `FolderFilter.Text` `TextChanged` events during restore from clearing persisted `Month` filters (`SearchChanged` `activeQuery` equality guard).
+- Eliminated intermittent WinUI 3 `0xc000027b` (`FailFastWithStowedExceptions`) modal teardown crashes (`DirectUI::UIAffinityReleaseQueue::DoCleanup` -> `CPopup::~CPopup` re-entering `CXcpDispatcher::OnReentrancyProtectedWindowMessage` when Narrator/UIA is active) by routing all modal `ContentDialog` calls through `ShowDialogAsync`, and eliminated synchronous `UpdateLayout()` re-entrancy crashes in `RefreshGallery`.
+- Added retry-with-backoff and plain-language lock-screen/contention notices for Windows clipboard operations (`SetClipboardWithRetryAsync`).
+- Fixed Quick Preview overlay focus so keyboard triage shortcuts (`Left`, `Right`, `F`, `T`, `M`, `I`, `Del`, `Enter`, `Space`, `Esc`) work immediately regardless of how Preview is opened, plus an inline video playback cue (`Enter` opens default Windows player).
+- Fixed `ExternalReconciliation` to respect active exclusion rules, hardened `MinimalGpsExtractor.ParseXmpBytes` with explicit `DtdProcessing.Prohibit` and `XmlResolver = null`, cleaned image MIME sniffing in Map data URIs, and cleared conflicting filters when browsing a source from **Manage sources**.
+- Added **`F1` Keyboard shortcuts & tips**, Settings **Reset catalog (keep originals)...**, privacy-respecting **Send feedback / Report a problem...**, structured GitHub issue templates, user documentation (`docs/USER_GUIDE.md`, `docs/TROUBLESHOOTING.md`, `docs/KNOWN_LIMITS.md`), product/architecture audit docs, and removed all em-dashes across code and documentation.
 
 ### Added
 - Collapsible sidebar (`Ctrl+B`), collapsible sidebar accordion sections (`Views`, `Albums`, `Smart collections`, `Folders & drives`) with item counts, and collapsible clean top toolbar mode (`Ctrl+H`).

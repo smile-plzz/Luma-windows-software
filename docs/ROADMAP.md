@@ -4,9 +4,9 @@ Status: the portable gallery development milestone is closed and merged into `ma
 
 | Milestone | Scope | Status |
 | --- | --- | --- |
-| Phase 1 — native library | Source identity, read-only scanning, thumbnails, search/tags/favorites, native file actions | Merged |
-| Phase 2 — offline browsing | Bulk preparation, cancellation/resume, coverage, cached folders, cache clearing | Merged |
-| Phase 3 — gallery redesign | Continuous gallery, customization/sorting, timeline, albums and Windows file control | Merged; automated gates passed; portable Windows shipment available |
+| Phase 1: native library | Source identity, read-only scanning, thumbnails, search/tags/favorites, native file actions | Merged |
+| Phase 2: offline browsing | Bulk preparation, cancellation/resume, coverage, cached folders, cache clearing | Merged |
+| Phase 3: gallery redesign | Continuous gallery, customization/sorting, timeline, albums and Windows file control | Merged; automated gates passed; portable Windows shipment available |
 | Final v0.6.0 refinement | Saved views, import progress, tooltips, outcomes and dialog consistency | Complete; merged and verified |
 | Real-life testing | Personal media, physical drives, Windows file interactions and daily usability | Current stage; user feedback pending |
 | Future delivery work | External-move reconciliation, measured full-library responsiveness, signing/installer | Deferred; prioritize from real-world feedback |

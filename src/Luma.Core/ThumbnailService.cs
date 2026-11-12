@@ -22,6 +22,9 @@ public sealed class ThumbnailService(ThumbnailCache cache, ISourceResolver sourc
     public bool IsCodecMissing(string extension) => missingCodecs.ContainsKey(extension);
     public void ResetCodecCache() => missingCodecs.Clear();
 
+    public Task<byte[]?> TryReadCachedAsync(CachedMedia media, int pixels = 256, CancellationToken ct = default) =>
+        cache.ReadAsync(ThumbnailCache.Key(media, pixels), ct);
+
     public async Task<byte[]?> GetAsync(CachedMedia media, int pixels = 256, CancellationToken ct = default, bool allowEviction = true, bool forceRefresh = false)
     {
         var ext = Path.GetExtension(media.RelativePath);
@@ -79,6 +82,35 @@ public sealed class ThumbnailService(ThumbnailCache cache, ISourceResolver sourc
 
 public static class SourcePaths
 {
+    private static readonly HashSet<string> WindowsReservedNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
+
+    public static bool ValidateWindowsFileName(string? name, out string error)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            error = "Enter a valid Windows filename.";
+            return false;
+        }
+        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.Contains('/') || name.Contains('\\') || name.EndsWith('.') || name.EndsWith(' '))
+        {
+            error = "Enter a valid Windows filename without invalid characters or trailing dots or spaces.";
+            return false;
+        }
+        var stem = Path.GetFileNameWithoutExtension(name);
+        if (WindowsReservedNames.Contains(name) || WindowsReservedNames.Contains(stem))
+        {
+            error = $"\"{stem.ToUpperInvariant()}\" is a reserved Windows device name. Choose a different filename.";
+            return false;
+        }
+        error = "";
+        return true;
+    }
+
     public static string Combine(string root, string relativePath)
     {
         if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))

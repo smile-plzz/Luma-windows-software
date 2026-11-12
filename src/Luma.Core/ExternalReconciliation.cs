@@ -19,8 +19,11 @@ public sealed partial class MediaCache
             return new ReconciliationReport(sourceId, Array.Empty<ReconciledMove>());
         }
 
-        // 1. Find catalog items in this source where file is missing on disk
+        var exclusions = await ExclusionsAsync(ct);
+
+        // 1. Collect catalog entries and find items missing on disk in one pass
         var missingInCatalog = new List<CachedMedia>();
+        var catalogPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         await using (var db = CreateConnection())
         {
             await db.OpenAsync(ct);
@@ -31,6 +34,7 @@ public sealed partial class MediaCache
             while (await reader.ReadAsync(ct))
             {
                 var relPath = reader.GetString(0);
+                catalogPaths.Add(relPath);
                 var fullPath = SourcePaths.Combine(root, relPath);
                 if (!File.Exists(fullPath))
                 {
@@ -44,21 +48,7 @@ public sealed partial class MediaCache
             return new ReconciliationReport(sourceId, Array.Empty<ReconciledMove>());
         }
 
-        // 2. Discover untracked files currently on disk
-        var catalogPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        await using (var db = CreateConnection())
-        {
-            await db.OpenAsync(ct);
-            await using var cmd = db.CreateCommand();
-            cmd.CommandText = "SELECT relative_path FROM media WHERE source_id=$s";
-            cmd.Parameters.AddWithValue("$s", sourceId);
-            await using var reader = await cmd.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
-            {
-                catalogPaths.Add(reader.GetString(0));
-            }
-        }
-
+        // 2. Discover untracked files currently on disk while honoring active exclusions
         var diskFiles = new List<(string RelativePath, long Length, long ModifiedTicks, string Kind)>();
         try
         {
@@ -67,6 +57,7 @@ public sealed partial class MediaCache
             {
                 ct.ThrowIfCancellationRequested();
                 var rel = Path.GetRelativePath(root, file.FullName);
+                if (exclusions.Any(e => e.Matches(sourceId, rel))) continue;
                 if (!catalogPaths.Contains(rel) && Extensions.Contains(file.Extension))
                 {
                     diskFiles.Add((rel, file.Length, file.LastWriteTimeUtc.Ticks, Videos.Contains(file.Extension) ? "video" : "photo"));

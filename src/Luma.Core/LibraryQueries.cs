@@ -69,8 +69,8 @@ public sealed record LibraryPage(IReadOnlyList<LibraryItem> Items, long Total, G
 
 internal sealed record ParsedSearchTokens(
     string Text,
-    string Tag,
-    string NegTag,
+    IReadOnlyList<string> Tags,
+    IReadOnlyList<string> NegTags,
     string Ext,
     string NegExt,
     int Year,
@@ -173,7 +173,7 @@ public sealed partial class MediaCache
         var effectiveHasGps = query.HasGpsOnly || parsed.HasGps || query.MapBounds is not null;
 
         bool needAnn = includeAnnotations || effectiveFav || effectiveUntagged || query.FavoritesFirst
-            || parsed.Text.Length > 0 || parsed.Tag.Length > 0 || parsed.NegTag.Length > 0;
+            || parsed.Text.Length > 0 || parsed.Tags.Count > 0 || parsed.NegTags.Count > 0;
         bool needIds = includeMediaIds || query.AlbumId is not null;
         bool needMeta = includeMetadata || query.MemoriesOn is not null || parsed.Text.Length > 0
             || parsed.Location.Length > 0 || query.LocationOriginFilter is not null || parsed.Year != 0
@@ -258,15 +258,17 @@ public sealed partial class MediaCache
             sb.Append(" AND (($locOrigin='manual' AND d.location_origin='manual') OR ($locOrigin='file' AND d.latitude IS NOT NULL AND d.longitude IS NOT NULL AND (d.location_origin IS NULL OR d.location_origin!='manual')))");
             cmd.Parameters.AddWithValue("$locOrigin", query.LocationOriginFilter);
         }
-        if (parsed.Tag.Length > 0)
+        for (int ti = 0; ti < parsed.Tags.Count; ti++)
         {
-            sb.Append(" AND a.tags LIKE $tagFilter ESCAPE '\\'");
-            cmd.Parameters.AddWithValue("$tagFilter", "%" + EscapeLike(parsed.Tag) + "%");
+            var param = $"$tagFilter{ti}";
+            sb.Append($" AND a.tags LIKE {param} ESCAPE '\\'");
+            cmd.Parameters.AddWithValue(param, "%" + EscapeLike(parsed.Tags[ti]) + "%");
         }
-        if (parsed.NegTag.Length > 0)
+        for (int ti = 0; ti < parsed.NegTags.Count; ti++)
         {
-            sb.Append(" AND (a.tags IS NULL OR a.tags NOT LIKE $negTagFilter ESCAPE '\\')");
-            cmd.Parameters.AddWithValue("$negTagFilter", "%" + EscapeLike(parsed.NegTag) + "%");
+            var param = $"$negTagFilter{ti}";
+            sb.Append($" AND (a.tags IS NULL OR a.tags NOT LIKE {param} ESCAPE '\\')");
+            cmd.Parameters.AddWithValue(param, "%" + EscapeLike(parsed.NegTags[ti]) + "%");
         }
         if (parsed.Ext.Length > 0)
         {
@@ -285,8 +287,9 @@ public sealed partial class MediaCache
         }
         if (parsed.Folder.Length > 0)
         {
+            var sepFolder = Path.DirectorySeparatorChar == '\\' ? parsed.Folder.Replace('/', '\\') : parsed.Folder.Replace('\\', '/');
             sb.Append(" AND m.relative_path LIKE $folderToken ESCAPE '\\'");
-            cmd.Parameters.AddWithValue("$folderToken", "%" + EscapeLike(parsed.Folder) + "%");
+            cmd.Parameters.AddWithValue("$folderToken", "%" + EscapeLike(sepFolder) + "%");
         }
         if (effectiveOrientation is not null)
         {
@@ -402,15 +405,44 @@ public sealed partial class MediaCache
         return (null, null);
     }
 
+    internal static IReadOnlyList<string> TokenizeSearchTerms(string raw)
+    {
+        var list = new List<string>();
+        var current = new StringBuilder();
+        bool inQuotes = false;
+        foreach (var ch in raw)
+        {
+            if (ch == '"')
+            {
+                inQuotes = !inQuotes;
+                continue;
+            }
+            if (char.IsWhiteSpace(ch) && !inQuotes)
+            {
+                if (current.Length > 0)
+                {
+                    list.Add(current.ToString());
+                    current.Clear();
+                }
+                continue;
+            }
+            current.Append(ch);
+        }
+        if (current.Length > 0) list.Add(current.ToString());
+        return list;
+    }
+
     internal static ParsedSearchTokens ParseSearch(string search)
     {
         var raw = search.Trim();
         if (string.IsNullOrWhiteSpace(raw))
-            return new("", "", "", "", "", 0, "", false, false, null, false, false, null, null, null, null, "");
+            return new("", Array.Empty<string>(), Array.Empty<string>(), "", "", 0, "", false, false, null, false, false, null, null, null, null, "");
 
-        var tokens = raw.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var tokens = TokenizeSearchTerms(raw);
         var textTokens = new List<string>();
-        string tag = "", negTag = "", ext = "", negExt = "", folder = "", location = "";
+        var tags = new List<string>();
+        var negTags = new List<string>();
+        string ext = "", negExt = "", folder = "", location = "";
         int year = 0;
         bool fav = false, untagged = false, is4k = false, hasGps = false;
         string? orientation = null;
@@ -419,9 +451,9 @@ public sealed partial class MediaCache
         foreach (var token in tokens)
         {
             if (token.StartsWith("tag:", StringComparison.OrdinalIgnoreCase) && token.Length > 4)
-                tag = token[4..];
+                tags.Add(token[4..].Trim());
             else if (token.StartsWith("-tag:", StringComparison.OrdinalIgnoreCase) && token.Length > 5)
-                negTag = token[5..];
+                negTags.Add(token[5..].Trim());
             else if (token.StartsWith("ext:", StringComparison.OrdinalIgnoreCase) && token.Length > 4)
                 ext = token[4..].TrimStart('.');
             else if (token.StartsWith("-ext:", StringComparison.OrdinalIgnoreCase) && token.Length > 5)
@@ -429,9 +461,9 @@ public sealed partial class MediaCache
             else if (token.StartsWith("year:", StringComparison.OrdinalIgnoreCase) && int.TryParse(token[5..], out var y))
                 year = y;
             else if (token.StartsWith("folder:", StringComparison.OrdinalIgnoreCase) && token.Length > 7)
-                folder = token[7..];
+                folder = token[7..].Trim();
             else if (token.StartsWith("location:", StringComparison.OrdinalIgnoreCase) && token.Length > 9)
-                location = token[9..];
+                location = token[9..].Trim();
             else if (token.StartsWith("date:", StringComparison.OrdinalIgnoreCase) && token.Length > 5)
             {
                 var (s, e) = ParseDateToken(token[5..]);
@@ -478,7 +510,7 @@ public sealed partial class MediaCache
                 textTokens.Add(token);
         }
 
-        return new(string.Join(" ", textTokens), tag, negTag, ext, negExt, year, folder, fav, untagged, orientation, is4k, hasGps, minLen, maxLen, afterTicks, beforeTicks, location);
+        return new(string.Join(" ", textTokens), tags, negTags, ext, negExt, year, folder, fav, untagged, orientation, is4k, hasGps, minLen, maxLen, afterTicks, beforeTicks, location);
     }
 
     public async Task<LibraryPage> QueryAsync(LibraryQuery query, CancellationToken ct = default)

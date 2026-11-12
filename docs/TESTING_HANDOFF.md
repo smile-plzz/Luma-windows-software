@@ -97,6 +97,19 @@ An earlier attempt had a Windows UI runtime crash during refresh (`Microsoft.UI.
 
 No new feature work is required before starting this testing stage. Startup/data-integrity defects take priority, followed by recurring performance/usability issues, then additional capabilities.
 
+## 10-Minute Owner Release Candidate Verification Script (v0.7.0-rc1)
+
+Run this exact checklist against the `v0.7.0-rc1` portable ZIP on your personal Windows machine and a real USB external drive (~10 minutes):
+
+1. **Clean extraction & upgrade backup (1 min):** Back up `%LOCALAPPDATA%\Luma`, extract the complete ZIP to a fresh folder, launch `Luma.App.exe` (confirm SmartScreen prompt behaves cleanly and existing v0.6.0 library, tags, albums, and position open without re-scanning).
+2. **First-run / Multi-word tags / Search (2 min):** Assign a multi-word tag such as `Dhaka Trip` to 2 test photos, rename it cleanly in **Organize tools -> Manage tags...**, and search `tag:"Dhaka Trip"` or `location:"..."` to verify quote-aware search preserves spaces.
+3. **Physical external HDD unplug & drive-letter swap (3 min):** In **Storage & previews**, repair previews on a disposable/test folder on your external HDD, unplug the drive cleanly, verify offline previews + metadata + favorites still work offline, replug the HDD (under a different drive letter if possible), and run **Refresh -> Update drive status only** to confirm in-place reconnect without full rescanning.
+4. **Quick Preview keyboard triage & Videos (2 min):** Press `Space` on a photo, step `Left`/`Right`, press `F` (favorite), `T` (tag), `I` (details), press `Esc`. Press `Space` on a video file to verify the playback hint (`Enter` opens in your default player).
+5. **Safe Undo & Recycle Cancel (1 min):** Move a disposable test file between folders inside Luma, open **Organize tools -> Review / Undo last transfer...** and undo it (confirm tags stay attached). Press `Delete` -> confirm dialog -> click **Cancel** inside Windows' Recycle prompt and verify the card stays in place without triggering a full scan.
+6. **Accessibility, DPI, & Feedback (1 min):** Press `F1` to open Keyboard shortcuts, check Light & Dark themes and 150%+ Windows display scaling if applicable, and verify **Settings -> Send feedback / Report a problem...** opens the prefilled GitHub issue template cleanly.
+
+Record results and any real-drive friction via GitHub Issues or send back findings to feed into `docs/assessment/FINDINGS.md`.
+
 ## Sending feedback
 
 Send feedback in the project conversation or open a [GitHub issue](https://github.com/smile-plzz/Luma-windows-software/issues/new?template=testing-feedback.md). Include the build/run, Windows version, drive type, approximate file count, exact steps, expected and actual result, and reproducibility. A screenshot or short recording helps. For transfer problems, include the relevant sanitized operation-report entries. Avoid posting your entire catalog or personal media; paths and filenames may contain private information.

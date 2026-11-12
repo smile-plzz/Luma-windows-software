@@ -320,7 +320,7 @@ public class NewFeaturesTests : IDisposable
         bw.Write((ushort)0x8825); bw.Write((ushort)4); bw.Write((uint)1); bw.Write((uint)(8 + 2 + 12 + 4)); // offset 26
         bw.Write((uint)0); // next IFD
 
-        // GPS IFD at 26: 2 entries (0x0002 Lat, 0x0004 Lon) — intentionally omits Ref tags (1 & 3)
+        // GPS IFD at 26: 2 entries (0x0002 Lat, 0x0004 Lon), intentionally omitting Ref tags (1 & 3)
         bw.Write((ushort)2);
         var latRatOffset = (uint)(26 + 2 + 24 + 4); // 56
         var lonRatOffset = latRatOffset + 24;        // 80

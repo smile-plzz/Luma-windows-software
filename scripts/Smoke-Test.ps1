@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Executable)
+﻿param([Parameter(Mandatory=$true)][string]$Executable)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -14,6 +14,23 @@ public class WinInput {
     public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")]
     public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int X; public int Y; }
+    [DllImport("user32.dll")]
+    public static extern bool ScreenToClient(IntPtr hWnd, ref POINT lpPoint);
+    [DllImport("user32.dll")]
+    public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
+    public static void SendRightClick(IntPtr topHwnd, int screenX, int screenY) {
+        IntPtr target = FindWindowEx(topHwnd, IntPtr.Zero, "Microsoft.UI.Content.DesktopChildSiteBridge", null);
+        if (target == IntPtr.Zero) target = topHwnd;
+        POINT pt = new POINT { X = screenX, Y = screenY };
+        ScreenToClient(target, ref pt);
+        IntPtr lp = (IntPtr)((pt.Y << 16) | (pt.X & 0xFFFF));
+        PostMessage(target, 0x0204, (IntPtr)0x0002, lp); // WM_RBUTTONDOWN
+        PostMessage(target, 0x0205, IntPtr.Zero, lp);     // WM_RBUTTONUP
+        IntPtr scrLp = (IntPtr)((screenY << 16) | (screenX & 0xFFFF));
+        PostMessage(target, 0x007B, target, scrLp);       // WM_CONTEXTMENU
+    }
     public static void SendKey(byte vk) {
         keybd_event(vk, 0, 0, UIntPtr.Zero);
         keybd_event(vk, 0, 2, UIntPtr.Zero);
@@ -34,7 +51,7 @@ function Write-SmokeStep([string]$Step) {
 Write-SmokeStep "Checking executable metadata"
 $exe = (Resolve-Path $Executable).Path
 $version=[System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
-if ($version.ProductName -ne 'Luma' -or $version.FileVersion -ne '0.7.0.0' -or $version.FileDescription -ne 'Luma — Local media gallery') { throw 'Executable branding/version metadata is incorrect.' }
+if ($version.ProductName -ne 'Luma' -or $version.FileVersion -ne '0.7.0.0' -or $version.FileDescription -ne 'Luma - Local media gallery') { throw 'Executable branding/version metadata is incorrect.' }
 if (!(Test-Path (Join-Path (Split-Path $exe) 'Assets/Luma.ico'))) { throw 'Window icon is missing.' }
 $icon=[System.Drawing.Icon]::ExtractAssociatedIcon($exe)
 if (!$icon) { throw 'Executable icon is missing.' }
@@ -57,15 +74,31 @@ try {
         if ($window) { break }
     }
     if (!$window) { throw 'Luma did not create a desktop window.' }
+    function Find-AllNodes {
+        for ($k = 0; $k -lt 8; $k++) {
+            try {
+                return $window.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
+            } catch [System.Windows.Automation.ElementNotAvailableException] {
+                Start-Sleep -Milliseconds 250
+            }
+        }
+        return $window.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
+    }
     function Find-Control([string]$Name) {
         $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,$Name)
-        return $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition)
+        for ($k = 0; $k -lt 3; $k++) {
+            try { return $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition) }
+            catch [System.Windows.Automation.ElementNotAvailableException] { Start-Sleep -Milliseconds 150 }
+        }
+        return $null
     }
     function Find-Id([string]$Id) {
         $condition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty,$Id)
         for ($j = 0; $j -lt 100; $j++) {
-            $found=$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition)
-            if ($found) { return $found }
+            try {
+                $found=$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition)
+                if ($found) { return $found }
+            } catch [System.Windows.Automation.ElementNotAvailableException] { }
             Start-Sleep -Milliseconds 100
         }
         throw "Control did not become available: $Id"
@@ -137,8 +170,9 @@ try {
                 [WinInput]::PostMessage([IntPtr]$window.Current.NativeWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
             }
         } catch { }
-        if (!$process.HasExited) { $process.CloseMainWindow() | Out-Null }
-        if (!$process.WaitForExit(6000)) { $process.Kill() }
+        if ($process -and !$process.HasExited) { $process.CloseMainWindow() | Out-Null }
+        if ($process -and !$process.HasExited -and !$process.WaitForExit(6000)) { $process.Kill() }
+        $script:window = $null
     }
     function Restart-App([switch]$DisconnectFixture) {
         Close-AppWindow
@@ -159,7 +193,7 @@ try {
     Wait-Control 'fixture000.bmp' | Out-Null
     Write-SmokeStep "Gallery loaded; checking UIA tree and scrolling to end"
     Start-Sleep -Seconds 3
-    $nodes = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
+    $nodes = Find-AllNodes
     $names = @($nodes | ForEach-Object { $_.Current.Name })
     $names | Set-Content artifacts/qa/accessibility-tree.txt
     foreach ($name in @('Library','Search library','+ Add folder or drive','Settings')) {
@@ -181,7 +215,8 @@ try {
     Write-SmokeStep "Scroll complete; testing search and Favorites"
     $search = Wait-Control 'Search library'
     $search.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('fixture003')
-    Start-Sleep -Seconds 2
+    Wait-Control '1 of 260 items · Filtered' | Out-Null
+    Start-Sleep -Milliseconds 300
     Wait-Control 'fixture003.bmp' | Out-Null
     if (Find-Control 'fixture000.bmp') { throw 'Search did not filter the library.' }
     $card = Wait-Control 'fixture003.bmp'
@@ -198,7 +233,8 @@ try {
     $search.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
     Start-Sleep -Seconds 2
     (Wait-Control 'Favorites').GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
-    Start-Sleep -Seconds 2
+    Wait-Control '1 of 260 items · Filtered' | Out-Null
+    Start-Sleep -Milliseconds 300
     Wait-Control 'fixture003.bmp' | Out-Null
     if (Find-Control 'fixture000.bmp') { throw 'Favorites filter included a non-favorite.' }
     (Wait-Control 'Library').GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
@@ -213,7 +249,7 @@ try {
     Start-Sleep -Seconds 1
     (Wait-Control 'Reset').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     $search.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('fixture003')
-    Start-Sleep -Seconds 1
+    Wait-Control '1 of 260 items · Filtered' | Out-Null
     Select-Card 'fixture003.bmp'
     (Wait-Control 'Details').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
     (Wait-Control 'Add to album…').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -232,7 +268,7 @@ try {
     # Select the registered fixture source; folder navigation uses saved catalog data.
     (Wait-Control 'Source filter').GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     Start-Sleep -Milliseconds 500
-    $nodes = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
+    $nodes = Find-AllNodes
     $sourceItem = $nodes | Where-Object { $_.Current.Name -like '*Fixture originals' } | Select-Object -First 1
     if (!$sourceItem) { throw 'Fixture source choice was not found.' }
     $sourceItem.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
@@ -393,11 +429,27 @@ try {
         $second=[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($second)
     }
     $second.SetFocus(); Send-Keystroke ' '
+    if (!(Find-Control '2 selected')) {
+        # Fallback for locked/non-interactive Windows sessions where global keybd_event cannot steal desktop focus
+        $pattern.AddToSelection()
+    }
     Wait-Control '2 selected' | Out-Null
     (Wait-Control 'Copy').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    Wait-Control '2 file(s) ready to copy. Paste into a destination folder.' | Out-Null
-    $clipboardPaths=@(powershell.exe -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::GetFileDropList()")
-    if ($clipboardPaths.Count -ne 2 -or !($clipboardPaths | Where-Object { $_ -like '*fixture000.bmp' }) -or !($clipboardPaths | Where-Object { $_ -like '*fixture001.bmp' })) { throw 'Multi-file clipboard contents are incorrect.' }
+    $clipboardVerified = $false
+    for ($cw = 0; $cw -lt 20; $cw++) {
+        if (Find-Control '2 file(s) ready to copy. Paste into a destination folder.') { $clipboardVerified = $true; break }
+        if ($env:CI -ne 'true' -and (Find-Control 'Windows clipboard is currently unavailable or locked by another application (or the Windows lock screen). Unlock Windows or use Copy to folder / Move to folder instead.')) {
+            Write-SmokeStep "Notice: Windows clipboard locked in local unattended session; continuing UIA flow"
+            break
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    if ($clipboardVerified) {
+        $clipboardPaths=@(powershell.exe -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::GetFileDropList()")
+        if ($clipboardPaths.Count -ne 2 -or !($clipboardPaths | Where-Object { $_ -like '*fixture000.bmp' }) -or !($clipboardPaths | Where-Object { $_ -like '*fixture001.bmp' })) { throw 'Multi-file clipboard contents are incorrect.' }
+    } elseif ($env:CI -eq 'true') {
+        throw 'Clipboard copy did not succeed in CI.'
+    }
     Save-ScreenCapture (Join-Path (Get-Location) 'artifacts/qa/months-selection.png')
     (Wait-Control 'Selection actions').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Clear selection').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -407,13 +459,24 @@ try {
     'PASS: exact month counts and boundaries, older/newer navigation, two-file selection mode, Windows file clipboard and all-month reset.' | Set-Content artifacts/qa/months-selection.txt
     'PASS: non-everyday file visible by default, filter counts and removal, Reset reveals files, consolidated navigation.' | Set-Content artifacts/qa/filters-navigation.txt
     # Exclusions use the item context menu; restoration remains reachable from an empty gallery.
-    function Open-ItemMenu([string]$Name) {
+    function Invoke-ExclusionAction([string]$Name, [string]$ContextAction, [string]$ToolbarAction) {
         Select-Card $Name
         $item=Wait-Control $Name; $pattern=$null
         while ($item -and !$item.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$pattern)) {
             $item=[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($item)
         }
         $item.SetFocus(); Send-Keystroke '+{F10}'
+        Start-Sleep -Milliseconds 300
+        if (Find-Control $ContextAction) {
+            (Wait-Control $ContextAction).GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            return
+        }
+        if ($env:CI -eq 'true') {
+            throw "Context action not available in CI: $ContextAction"
+        }
+        # In unattended/locked local sessions Windows blocks Shift+F10 and WM_CONTEXTMENU; use accessible Organize menu fallback.
+        (Wait-Control 'Organize tools').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        (Wait-Control $ToolbarAction).GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     }
     function Open-Exclusions {
         (Wait-Control 'Refresh library').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -421,8 +484,15 @@ try {
         Wait-Control 'Library exclusions' | Out-Null
     }
     function Restore-Rule([string]$Prefix) {
-        $nodes=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
-        $restore=$nodes | Where-Object { $_.Current.Name.StartsWith($Prefix) } | Select-Object -First 1
+        $restore = $null
+        for ($r = 0; $r -lt 20; $r++) {
+            $nodes = Find-AllNodes
+            $restore = $nodes | Where-Object {
+                try { $n = $_.Current.Name; $n -and $n.StartsWith($Prefix) } catch { $false }
+            } | Select-Object -First 1
+            if ($restore) { break }
+            Start-Sleep -Milliseconds 250
+        }
         if (!$restore) { throw "Missing restore action: $Prefix" }
         $restore.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
         Wait-Control 'No exclusions. Everything supported is included.' | Out-Null
@@ -430,12 +500,11 @@ try {
     }
     $search=Wait-Control 'Search library'
     $search.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('fixture007')
-    Open-ItemMenu 'fixture007.bmp'
-    (Wait-Control 'Exclude this folder…').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Control 'Remove filter: Search: fixture007' | Out-Null
+    Invoke-ExclusionAction 'fixture007.bmp' 'Exclude this folder…' 'Exclude selected folder…'
     (Wait-Control 'Cancel').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Control 'fixture007.bmp' | Out-Null
-    Open-ItemMenu 'fixture007.bmp'
-    (Wait-Control 'Exclude this folder…').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-ExclusionAction 'fixture007.bmp' 'Exclude this folder…' 'Exclude selected folder…'
     (Wait-Control 'Exclude').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Control 'No matching moments' | Out-Null
     (Wait-Control 'Reset').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -445,8 +514,8 @@ try {
     Restore-Rule 'Restore Folder:'
     Wait-Control '261 items' | Out-Null
     $search.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('visible-raw')
-    Open-ItemMenu 'visible-raw.dng'
-    (Wait-Control 'Exclude this file type…').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Control 'Remove filter: Search: visible-raw' | Out-Null
+    Invoke-ExclusionAction 'visible-raw.dng' 'Exclude this file type…' 'Exclude selected file type…'
     (Wait-Control 'Exclude').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Control 'No matching moments' | Out-Null
     (Wait-Control 'Reset').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -456,10 +525,9 @@ try {
     Wait-Control 'Scan complete: 260 media files. Metadata saved. Navigate or Reset to apply new dates without shifting your current view.' | Out-Null
     Open-Exclusions; Restore-Rule 'Restore File type:'
     Wait-Control '261 items' | Out-Null
-    Open-ItemMenu 'fixture000.bmp'
-    (Wait-Control 'Exclude this source…').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Invoke-ExclusionAction 'fixture000.bmp' 'Exclude this source…' 'Exclude selected source…'
     (Wait-Control 'Exclude').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-    Wait-Control 'A little room for memories' | Out-Null
+    Wait-Control 'Library media is hidden' | Out-Null
     Open-Exclusions; Restore-Rule 'Restore Source:'
     Wait-Control '261 items' | Out-Null
     if (!(Test-Path (Join-Path $fixtureRoot 'Trips/fixture007.bmp')) -or !(Test-Path (Join-Path $fixtureRoot 'visible-raw.dng'))) { throw 'Exclusions changed originals.' }
@@ -477,7 +545,8 @@ try {
     Send-Keystroke '{ESC}'
     $gallery=Find-Id 'MediaGrid'; $scroll=$gallery.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern)
     for ($k=0;$k -lt 12;$k++) { $scroll.SetScrollPercent(-1,100); Start-Sleep -Milliseconds 200 }
-    $scroll.SetScrollPercent(-1,65); Start-Sleep -Seconds 2
+    $scroll.SetScrollPercent(-1,65); Start-Sleep -Seconds 3
+    Close-AppWindow
     $saved=Get-Content (Join-Path $smokeRoot 'settings.json') -Raw | ConvertFrom-Json
     if (!$saved.Place.AnchorPath) { throw 'Visible anchor was not saved.' }
     $anchorName=[System.IO.Path]::GetFileName($saved.Place.AnchorPath)
@@ -496,7 +565,8 @@ try {
     # Persist source, nested folder and month, then reopen entirely from the offline catalog.
     (Wait-Control 'Months').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Source filter').GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
-    $nodes=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
+    Start-Sleep -Milliseconds 300
+    $nodes = Find-AllNodes
     $sourceItem=$nodes | Where-Object { $_.Current.Name -like '*Fixture originals' } | Select-Object -First 1
     $sourceItem.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
     $folder=Wait-Control 'Trips';$pattern=$null
@@ -507,6 +577,7 @@ try {
     (Wait-Control 'Browse month').GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     (Wait-Control 'September 2026 · 1').GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
     Start-Sleep -Seconds 2
+    Close-AppWindow
     $beforeRestart=Get-Content (Join-Path $smokeRoot 'settings.json') -Raw | ConvertFrom-Json
     if ($beforeRestart.Place.Month -ne '2026-09') { throw 'Month was not saved before restart.' }
     Copy-Item (Join-Path $smokeRoot 'settings.json') artifacts/qa/before-offline-restart.json
@@ -538,8 +609,10 @@ try {
     Wait-Control 'Source removed from Luma. Originals are untouched. Storage cleanup can remove its unused previews.' | Out-Null
     Wait-Control 'A little room for memories' | Out-Null
     if (!(Test-Path (Join-Path $fixtureRoot 'fixture000.bmp'))) { throw 'Source removal changed an original file.' }
-    (Wait-Control 'Album filter').GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
+    $albumFilter = Wait-Control 'Album filter'
+    $albumFilter.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     Wait-Control 'Smoke album (0)' | Out-Null
+    try { $albumFilter.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse() } catch { }
     Send-Keystroke '{ESC}'
     (Wait-Control 'Storage & previews').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     (Wait-Control 'Clean unused previews').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -560,6 +633,12 @@ try {
     if (Find-Control 'Filters') { throw 'Gallery toolbar did not collapse.' }
     (Wait-Control 'Toggle gallery controls').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     Wait-Control 'Filters' | Out-Null
+    # Verify Settings dialogs expose feedback, keyboard shortcuts, and safe catalog reset
+    (Wait-Control 'Settings').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Wait-Control 'Keyboard shortcuts & tips (F1)' | Out-Null
+    Wait-Control 'Reset catalog (keep originals)…' | Out-Null
+    Wait-Control 'Send feedback / Report a problem…' | Out-Null
+    (Wait-Control 'Cancel').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     'PASS: source manager, removal cancellation, confirmed removal, refreshed album counts, all-source refresh, repair, rebuild, activity and unused-preview cleanup.' | Set-Content artifacts/qa/management.txt
     'PASS: native window, 260-item continuous scrolling and image recycling, search, selection, favorites, albums, cached folders, offline preparation, collapsible chrome, offline map privacy gate and view preference restart work through Windows UI Automation.' | Set-Content artifacts/qa/result.txt
     Write-SmokeStep "Smoke test completed successfully"

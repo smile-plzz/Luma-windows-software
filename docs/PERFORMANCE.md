@@ -19,7 +19,13 @@ Baseline on the same machine prior to optimization (`cc3de45`):
 - 200,000 records: First 120 + Count `70.97 ms`, Next Page `2.78 ms`, Month Breakdown `671.70 ms`, Locate Anchor `448.29 ms`
 - 500,000 records: First 120 + Count `583.91 ms`, Next Page `2.41 ms`, Month Breakdown `2,095.56 ms`, Locate Anchor `1,396.14 ms`
 
-[v0.7.0 raw measurements](performance/windows-v0.7.0-benchmarks.json). Single-run synthetic database timings; not physical HDD scan, image decoding, or UI frame rate. At 500,000 records, First 120 + Count improved 14.8x (`583.91 ms` to `39.51 ms`), Month Breakdown improved 24.8x (`2,095.56 ms` to `84.50 ms`), and Locate Middle Anchor improved 34.1x (`1,396.14 ms` to `40.89 ms`), with cursor pagination steady around `1 ms`. First paint path in v0.7.0 defers month timeline calculation to avoid blocking first 120 card render.
+[v0.7.0 raw measurements](performance/windows-v0.7.0-benchmarks.json). Note on cold vs warm runs: running `Luma.Benchmarks` (`-c Release`) from scratch on 2026-11-12 during stabilization verification measured SQLite synthetic population + cold first-page count vs warm cursor continuation on this workstation:
+- 1,000 records: Populated `373.5 ms`, First 120 + Count `430.14 ms` (JIT warmup), Next Page (Cursor) `123.97 ms`, Months `385.61 ms`, Locate `147.09 ms`
+- 10,000 records: Populated `3,174.1 ms`, First 120 + Count `43.08 ms`, Next Page (Cursor) `24.17 ms`, Months `30.59 ms`, Locate `7.64 ms`
+- 100,000 records: Populated `37,473.7 ms`, First 120 + Count `153.91 ms`, Next Page (Cursor) `25.41 ms`, Months `371.1 ms`, Locate `93.76 ms`
+- 200,000 records: Populated `86,334.8 ms`, First 120 + Count `241.91 ms`, Next Page (Cursor) `19.13 ms`, Months `746.14 ms`, Locate `120.19 ms`
+- 500,000 records: Populated `251,890.8 ms`, First 120 + Count `562.23 ms`, Next Page (Cursor) `18.84 ms`, Months `1,321.47 ms`, Locate `737.65 ms`
+Cursor continuation stays steady around `19-25 ms` across 10k-500k records. Single-run synthetic database timings; not physical HDD scan, image decoding, or UI frame rate. First paint path in v0.7.0 defers month timeline calculation to avoid blocking first 120 card render.
 
 ## v0.6.0 saved-position check
 

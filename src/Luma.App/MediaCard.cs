@@ -11,6 +11,7 @@ public sealed class MediaCard : INotifyPropertyChanged
 {
     private readonly AppSettings settings;
     private readonly DateOnly? memoryDay;
+    private bool discarded;
 
     public MediaCard(LibraryItem item, AppSettings settings, DateOnly? memoryDay = null, IReadOnlyList<LibraryItem>? stackItems = null, string stackKind = "Single")
     {
@@ -48,7 +49,18 @@ public sealed class MediaCard : INotifyPropertyChanged
         Changed(nameof(TooltipText));
     }
 
-    public string Name => Path.GetFileName(Item.Media.RelativePath);
+    public void Discard()
+    {
+        discarded = true;
+        Realized = false;
+        Thumbnail = null;
+        ThumbnailRequest?.Cancel();
+        ThumbnailRequest = null;
+        Changed(nameof(Name));
+        Changed(nameof(TooltipText));
+    }
+
+    public string Name => discarded ? "" : Path.GetFileName(Item.Media.RelativePath);
 
     // Prefer capture date when available unless explicitly sorting by Date Modified
     public DateTime Date => new DateTime(
@@ -110,7 +122,7 @@ public sealed class MediaCard : INotifyPropertyChanged
                     lines.Add($"GPS: {lat:0.0000}, {lon:0.0000}" + (meta.LocationOrigin == "manual" ? " (Manual pin)" : ""));
             }
             if (!string.IsNullOrWhiteSpace(Item.Tags)) lines.Add($"Tags: {Item.Tags}");
-            if (IsStack) lines.Add($"Stack of {StackItems.Count} ({StackKind})");
+            if (IsStack) lines.Add($"Stack of {StackItems.Count} ({StackKind}): actions apply to the cover photo until expanded");
             if (!Item.Media.IsAvailable) lines.Add("Offline preview");
             return string.Join("\n", lines);
         }

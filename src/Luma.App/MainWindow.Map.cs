@@ -608,7 +608,7 @@ public sealed partial class MainWindow
                     var done = processedOffset + p.Checked;
                     DispatcherQueue.TryEnqueue(() =>
                     {
-                        MapBackfillText.Text = $"Scanning GPS ({Math.Min(done, pendingTotal):N0} / {pendingTotal:N0})";
+                        if (!isClosing) MapBackfillText.Text = $"Scanning GPS ({Math.Min(done, pendingTotal):N0} / {pendingTotal:N0})";
                     });
                 });
                 var progress = new Progress<int>(savedCount =>
@@ -618,7 +618,7 @@ public sealed partial class MainWindow
                         refreshThrottle.Restart();
                         DispatcherQueue.TryEnqueue(() =>
                         {
-                            if (MapOverlay.Visibility == Visibility.Visible)
+                            if (!isClosing && MapOverlay.Visibility == Visibility.Visible)
                             {
                                 var mode = currentMapMarkers.Count == 0 && !settings.MapHasSavedViewport
                                     ? MapViewportMode.FitAll
@@ -752,7 +752,7 @@ public sealed partial class MainWindow
             DefaultButton = ContentDialogButton.Primary
         };
 
-        var result = await dialog.ShowAsync();
+        var result = await ShowDialogAsync(dialog);
         if (result == ContentDialogResult.None) return;
 
         if (result == ContentDialogResult.Secondary)
@@ -1734,7 +1734,8 @@ public sealed partial class MainWindow
                     var bytes = await UseCache(() => thumbnails.GetAsync(match.Media, 256, CancellationToken.None));
                     if (bytes is not null)
                     {
-                        var dataUri = "data:image/jpeg;base64," + Convert.ToBase64String(bytes);
+                        var isPng = bytes.Length >= 4 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47;
+                        var dataUri = $"data:{(isPng ? "image/png" : "image/jpeg")};base64," + Convert.ToBase64String(bytes);
                         sender.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(new
                         {
                             type = "thumb",
