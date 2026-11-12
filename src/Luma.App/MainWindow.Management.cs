@@ -144,6 +144,7 @@ public sealed partial class MainWindow
         }
         catch { }
         await catalog.RemoveSourceAsync(id);
+        InvalidateMapCache(resetBackfillCheck: true);
         if(SelectedSource==id) { var wasReady=ready; ready=false; FolderFilter.Text=""; ClearDateRange(); ready=wasReady; }
         await LoadSources(); await LoadAlbums(); await Refresh();
         if(removePreviews.IsChecked==true && cache is not null)

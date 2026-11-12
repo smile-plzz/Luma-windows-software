@@ -11,6 +11,7 @@ public sealed class MediaCard : INotifyPropertyChanged
 {
     private readonly AppSettings settings;
     private readonly DateOnly? memoryDay;
+    private bool discarded;
 
     public MediaCard(LibraryItem item, AppSettings settings, DateOnly? memoryDay = null, IReadOnlyList<LibraryItem>? stackItems = null, string stackKind = "Single")
     {
@@ -48,7 +49,18 @@ public sealed class MediaCard : INotifyPropertyChanged
         Changed(nameof(TooltipText));
     }
 
-    public string Name => Path.GetFileName(Item.Media.RelativePath);
+    public void Discard()
+    {
+        discarded = true;
+        Realized = false;
+        Thumbnail = null;
+        ThumbnailRequest?.Cancel();
+        ThumbnailRequest = null;
+        Changed(nameof(Name));
+        Changed(nameof(TooltipText));
+    }
+
+    public string Name => discarded ? "" : Path.GetFileName(Item.Media.RelativePath);
 
     // Prefer capture date when available unless explicitly sorting by Date Modified
     public DateTime Date => new DateTime(

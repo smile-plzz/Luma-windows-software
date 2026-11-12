@@ -9,7 +9,6 @@ As-built technical map of Luma on branch `feat/v0.7.0-trust-speed-and-viewing` (
 |                       Luma.App (WinUI 3 / WinAppSDK)                  |
 | MainWindow.xaml + partial code-behind modules:                        |
 |  - MainWindow.Gallery.cs (virtualized grid, Adaptive/Moments rows)    |
-|  - MainWindow.Preview.cs (Spacebar overlay, zoom, video cue, triage)  |
 |  - MainWindow.Organization.cs (Favorites, Tags, Albums, Copy/Move)    |
 |  - MainWindow.Management.cs (Sources, Refresh, Repair, Rebuild)       |
 |  - MainWindow.Offline.cs (Prepare, Clear Cache, Reconnect status)     |

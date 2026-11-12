@@ -191,8 +191,18 @@ public sealed class WindowsMetadataReader : IMetadataReader
                 pOrigin,
                 MediaCache.CurrentMetadataVersion);
         }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException
+            or IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or NotSupportedException
+            or InvalidOperationException
+            or FormatException
+            or OverflowException
+            or NotImplementedException)
         {
+            if (ex is FileNotFoundException or DirectoryNotFoundException)
+                throw;
             // Even when a codec or WinRT property handler is missing (e.g. RAW/DNG/HEIC), recover EXIF/XMP/sidecar GPS read-only.
             var fallback = MinimalGpsExtractor.ExtractFromFile(path);
             return new(

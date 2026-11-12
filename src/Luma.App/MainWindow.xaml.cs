@@ -147,7 +147,6 @@ public sealed partial class MainWindow : Window
         queryCancellation?.Cancel();
         searchCancellation?.Cancel();
         preparationCancellation?.Cancel();
-        previewCancellation?.Cancel();
         mapBackfillCts?.Cancel();
         try { Task.WaitAll(SnapshotCacheTasks(), TimeSpan.FromSeconds(2)); } catch (Exception) { /* Pending work must finish before releasing cache ownership. */ }
         cache?.Dispose();
@@ -170,7 +169,20 @@ public sealed partial class MainWindow : Window
         finally { if (exclusive) operation = false; }
     }
     private void Notify(string text, bool error = false)
-    { recentActivity.Enqueue($"{DateTime.Now:t} · {text}"); while(recentActivity.Count>20)recentActivity.Dequeue(); Notice.Message = text; Notice.Severity = error ? InfoBarSeverity.Error : InfoBarSeverity.Informational; Notice.IsOpen = true; }
+    {
+        recentActivity.Enqueue($"{DateTime.Now:t} · {text}");
+        while (recentActivity.Count > 20) recentActivity.Dequeue();
+        var severity = error ? InfoBarSeverity.Error : InfoBarSeverity.Informational;
+        Notice.Message = text;
+        Notice.Severity = severity;
+        Notice.IsOpen = true;
+        if (MapOverlay.Visibility == Visibility.Visible && MapNotice is not null)
+        {
+            MapNotice.Message = text;
+            MapNotice.Severity = severity;
+            MapNotice.IsOpen = true;
+        }
+    }
     private async Task LoadSources()
     {
         if (checkingSources) return;
@@ -182,6 +194,7 @@ public sealed partial class MainWindow : Window
             var labels = await catalog.SourceLabelsAsync();
             var signature = string.Join(";", all.Select(s => s.Id + s.IsOnline + s.RootPath + (labels.TryGetValue(s.Id,out var label) ? label : "")));
             var changed = signature != sourceSignature; sourceSignature = signature;
+            if (changed) InvalidateMapCache(resetBackfillCheck: true);
             if(!changed && Sources.ItemsSource is not null) return;
             var choices = new List<SourceChoice> { new(null, "All sources") };
             choices.AddRange(all.Select(s => new SourceChoice(s.Id, $"{(s.IsOnline ? "●" : "○")} {(labels.TryGetValue(s.Id, out var label) && label.Length > 0 ? label : s.RootPath)}")));
@@ -253,7 +266,7 @@ public sealed partial class MainWindow : Window
                 count += opened.MediaCount;
                 if (!opened.UsedSavedCatalog) scannedIds.Add(source.Id);
             }
-            await LoadSources(); await Refresh(); published = true;
+            await LoadSources(); InvalidateMapCache(resetBackfillCheck: true); await Refresh(); published = true;
             if (scannedIds.Count == 0)
             {
                 Status.Text = $"{count:N0} saved items · Ready";
@@ -267,6 +280,7 @@ public sealed partial class MainWindow : Window
                 var metadataProgress=MetadataFeedback(label);
                 await Task.Run(()=>catalog.EnrichAsync(new WindowsMetadataReader(),metadataSource,scanCancellation.Token,details:metadataProgress));
             }
+            InvalidateMapCache(resetBackfillCheck: true);
             Status.Text=$"Import complete · {count:N0} items";
             var warnings=(await catalog.IndexingWarningsAsync()).Count(w=>scannedIds.Contains(w.SourceId));
             Notify(warnings>0 ? $"Indexed {count:N0} media files; {warnings} inaccessible folder(s) skipped. Older catalog entries were retained. See Activity, fix access, then refresh." : $"Scan complete: {count:N0} media files. Metadata saved. Navigate or Reset to apply new dates without shifting your current view.");
@@ -369,12 +383,32 @@ public sealed partial class MainWindow : Window
         if (target is not null) ShellFiles.RevealInExplorer(Resolve(target.Item.Media));
         return Task.CompletedTask;
     });
+    private async Task SetClipboardWithRetryAsync(DataPackage data)
+    {
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            try
+            {
+                Clipboard.SetContent(data);
+                Clipboard.Flush();
+                return;
+            }
+            catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == unchecked((int)0x800401D0))
+            {
+                if (attempt == 3)
+                    throw new InvalidOperationException("Windows clipboard is currently unavailable or locked by another application (or the Windows lock screen). Unlock Windows or use Copy to folder / Move to folder instead.");
+                await Task.Delay(60 * (attempt + 1));
+            }
+        }
+    }
+
     private async void CopyPath(object sender, RoutedEventArgs e) => await ClipboardAction(async () =>
     {
         var selected=GetSelectedCards().Select(c=>c.Item.Media).ToArray();
         if(selected.Length==0)return;
         var paths=await Task.Run(()=>selected.Select(Resolve).ToArray());
-        var data=new DataPackage(); data.SetText(string.Join(Environment.NewLine,paths)); Clipboard.SetContent(data); Clipboard.Flush();
+        var data=new DataPackage(); data.SetText(string.Join(Environment.NewLine,paths));
+        await SetClipboardWithRetryAsync(data);
         Notify($"Copied {paths.Length:N0} file paths.");
     });
     // Clipboard preparation is read-only and may run while background indexing owns
@@ -396,7 +430,7 @@ public sealed partial class MainWindow : Window
         var data = new DataPackage { RequestedOperation = cut ? DataPackageOperation.Move : DataPackageOperation.Copy };
         data.SetStorageItems(files);
         data.SetData("Luma.FileSelection.v1", JsonSerializer.Serialize(selected.Select(c => c.Item.Media).ToArray()));
-        Clipboard.SetContent(data); Clipboard.Flush();
+        await SetClipboardWithRetryAsync(data);
         pendingCutIds.Clear();
         if(cut) foreach(var card in selected) pendingCutIds.Add(card.Item.Id);
         foreach(var card in cards) card.IsCut=pendingCutIds.Contains(card.Item.Id);
@@ -428,6 +462,7 @@ public sealed partial class MainWindow : Window
         if (deleted.Length > 0)
         {
             await catalog.RemoveMediaItemsAsync(deleted);
+            InvalidateMapCache(resetBackfillCheck: false);
             await LoadAlbums();
             await Refresh();
             Notify($"Moved {deleted.Length:N0} file(s) to the Recycle Bin.");
@@ -475,6 +510,7 @@ public sealed partial class MainWindow : Window
         var renamed = media with { RelativePath = Path.Combine(Path.GetDirectoryName(media.RelativePath) ?? "", name) };
         try { await catalog.RelocateAsync(media, renamed); }
         catch { Notify("File renamed, but catalog update failed. Keep the old catalog; restore the filename in Explorer before retrying.", true); throw; }
+        InvalidateMapCache(resetBackfillCheck: false);
         await LoadAlbums(); await Refresh();
     }
 
@@ -502,7 +538,7 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(previewList);
 
         var dialog = new ContentDialog { RequestedTheme = Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = "Batch rename files", Content = panel, PrimaryButtonText = $"Rename {selected.Length:N0} files", CloseButtonText = "Cancel" };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (await ShowDialogAsync(dialog) != ContentDialogResult.Primary) return;
 
         int renamedCount = 0, skippedCount = 0, catalogErrorCount = 0;
         for (int i = 0; i < selected.Length; i++)
@@ -527,6 +563,7 @@ public sealed partial class MainWindow : Window
             }
             catch { skippedCount++; }
         }
+        InvalidateMapCache(resetBackfillCheck: false);
         await LoadAlbums(); await Refresh();
         var summary = $"Batch rename finished: {renamedCount:N0} renamed, {skippedCount:N0} skipped.";
         if (catalogErrorCount > 0) summary += $" {catalogErrorCount:N0} renamed file(s) need a Refresh to update the catalog.";
@@ -539,6 +576,7 @@ public sealed partial class MainWindow : Window
         var selected = GetSelectedCards(); if (selected.Length == 0) return;
         var favorite = !selected.All(c => c.Item.Favorite);
         foreach (var card in selected) await catalog.AnnotateAsync(card.Item.Media, favorite, card.Item.Tags);
+        InvalidateMapCache(resetBackfillCheck: false);
         await Refresh(); Notify($"{selected.Length:N0} item(s) {(favorite ? "added to" : "removed from")} Favorites.");
     }, true);
     private async void SaveTags(object sender, RoutedEventArgs e) => await Guard(async () =>
@@ -547,19 +585,39 @@ public sealed partial class MainWindow : Window
         if (selected.Length > 1 && !await Confirm("Replace tags on selected files?", $"Replace tags for {selected.Length} selected items with the entered list.", "Save tags")) return;
         if(selected.Length==0) {Notify("Select a file before saving tags.");return;}
         foreach (var card in selected) await catalog.AnnotateAsync(card.Item.Media, card.Item.Favorite, TagsBox.Text);
+        InvalidateMapCache(resetBackfillCheck: false);
         await Refresh(); Notify($"Tags saved for {selected.Length:N0} item(s).");
     }, true);
     private async Task<bool> Confirm(string title, string message, string action)
     {
         var dialog = new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = title, Content = message, PrimaryButtonText = action, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        return await ShowDialogAsync(dialog) == ContentDialogResult.Primary;
     }
+
+    private readonly List<ContentDialog> retainedDialogs = new();
+    private async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog)
+    {
+        try
+        {
+            return await dialog.ShowAsync();
+        }
+        finally
+        {
+            // Keep cleared shells alive so WinUI's UIAffinityReleaseQueue never runs ~ContentDialog/~CPopup
+            // inside a reentrancy-protected tick while UIA or Narrator is attached.
+            dialog.Content = null;
+            dialog.DataContext = null;
+            retainedDialogs.Add(dialog);
+            await Task.Yield();
+        }
+    }
+
     private async Task<string?> Prompt(string title, string description, string initial)
     {
         var input = new TextBox { Text = initial, Header = description, MinWidth = 320 };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(input,"DialogInput");
         var dialog = new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = title, Content = input, PrimaryButtonText = "Save", CloseButtonText = "Cancel" };
-        return await dialog.ShowAsync() == ContentDialogResult.Primary ? input.Text.Trim() : null;
+        return await ShowDialogAsync(dialog) == ContentDialogResult.Primary ? input.Text.Trim() : null;
     }
     private void ApplyTheme()
     {
@@ -595,7 +653,7 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(ActionButton("Copy diagnostic info (paths redacted)",()=> { copyDiagnostics=true; dialog.Hide(); }));
         panel.Children.Add(ActionButton("Send feedback / Report a problem…",()=> { sendFeedback=true; dialog.Hide(); }));
         panel.Children.Add(ActionButton("Check for updates on GitHub",()=> { checkUpdates=true; dialog.Hide(); }));
-        var result=await dialog.ShowAsync();
+        var result=await ShowDialogAsync(dialog);
         if(showShortcuts) { await ShowKeyboardShortcutsDialog(); return; }
         if(storage) { await OpenStorage(); return; }
         if(exclusions) { await OpenExclusions(); return; }
@@ -667,12 +725,7 @@ public sealed partial class MainWindow : Window
     }
     private void EscapeShortcut(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs e)
     {
-        if (PreviewOverlay.Visibility == Visibility.Visible)
-        {
-            DoClosePreview();
-            e.Handled = true;
-        }
-        else if (MapOverlay.Visibility == Visibility.Visible)
+        if (MapOverlay.Visibility == Visibility.Visible)
         {
             if (mapPinMode)
             {
@@ -738,8 +791,7 @@ public sealed partial class MainWindow : Window
         var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
         var data = new DataPackage();
         data.SetText(json);
-        Clipboard.SetContent(data);
-        Clipboard.Flush();
+        await SetClipboardWithRetryAsync(data);
         Notify("Diagnostic details copied to clipboard (all paths redacted).");
     }
 
@@ -839,7 +891,7 @@ public sealed partial class MainWindow : Window
             }
         }));
 
-        await dialog.ShowAsync();
+        await ShowDialogAsync(dialog);
         if (pending is not null) await pending();
     }
 
@@ -894,7 +946,7 @@ public sealed partial class MainWindow : Window
             groupList.Children.Add(box);
         }
 
-        await dialog.ShowAsync();
+        await ShowDialogAsync(dialog);
     }
 
     private async Task ResetCatalogAction()
@@ -910,6 +962,7 @@ public sealed partial class MainWindow : Window
             "Reset catalog")) return;
 
         await Task.Run(() => catalog.ResetCatalogAsync());
+        InvalidateMapCache(resetBackfillCheck: true);
         sourceSignature = "";
         await LoadSources();
         await LoadAlbums();
@@ -923,19 +976,17 @@ public sealed partial class MainWindow : Window
         var panel = new StackPanel { Spacing = 10, MinWidth = 420 };
         panel.Children.Add(Description(
             "Gallery shortcuts:\n" +
-            "  Space: Open or close Quick Preview (toggles selection in Select mode)\n" +
-            "  Enter: Open selected original in default Windows app (also plays videos)\n" +
+            "  Enter / Double-click: Open selected original in your default Windows app (photos & videos)\n" +
+            "  Space: Toggle card selection in Select mode\n" +
             "  Ctrl+F: Focus Search (supports tag:\"Multi Word\", location:\"New York\", year:2025)\n" +
-            "  Ctrl+A / Esc: Select loaded items / Clear selection or close overlay\n" +
+            "  Ctrl+A / Esc: Select loaded items / Clear selection or close Map\n" +
             "  Ctrl+C / X / V: Copy, Cut, Paste originals\n" +
             "  F2 / Del: Rename or Batch Rename / Move to Recycle Bin\n" +
             "  Ctrl+B / Ctrl+H / F5 / F1: Sidebar / Header / Refresh / Shortcuts\n\n" +
-            "Quick Preview shortcuts:\n" +
-            "  Left / Right: Step previous or next item\n" +
-            "  F / T / M / I / Del: Favorite / Tag / Move / Details / Recycle Bin\n\n" +
-            "Capture date precedence & limits:\n" +
+            "Capture date precedence & offline mode:\n" +
             "  Luma reads embedded capture dates (EXIF, QuickTime, XMP) first, then falls back to earliest valid file timestamp.\n" +
-            "  While an external drive is offline, cached previews, search, Favorites, tags, and virtual albums remain editable; opening or modifying originals requires reconnecting the drive."
+            "  GPS & map location metadata are cached locally in Luma's SQLite catalog so revisiting Map View never re-scans unchanged files.\n" +
+            "  While an external drive is offline, cached thumbnails, map locations, search, Favorites, tags, and virtual albums remain editable; opening or modifying originals requires reconnecting the drive."
         ));
         var dialog = new ContentDialog
         {
@@ -946,7 +997,7 @@ public sealed partial class MainWindow : Window
             PrimaryButtonText = "Send feedback…",
             CloseButtonText = "Close"
         };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        if (await ShowDialogAsync(dialog) == ContentDialogResult.Primary)
             await OpenFeedbackIssue();
     }
 

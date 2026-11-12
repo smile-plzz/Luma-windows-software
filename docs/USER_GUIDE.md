@@ -16,11 +16,7 @@ Luma lets you browse photos and videos stored across your PC folders and externa
 - **Timeline & layouts:** Switch between **Uniform Grid**, **Adaptive** (aspect-ratio preserving), and **Moments** in Gallery View Options (`Sliders` button). Group by Year, Month, Day, or Session, or turn off grouping cleanly.
 - **Month navigation & Day jump:** Use **Browse month**, **Older month**, **Newer month**, **Jump to day**, or **All months** to jump across decades without scrolling endlessly.
 - **Photo stacks:** Similar burst/edited shots collapse cleanly under one cover thumbnail. Click the stack badge to expand or collapse all stacked items. Note: actions triggered on a collapsed stack apply to its cover photo.
-- **Quick Preview (`Space`):** Press `Space` on any item (outside Select mode) or double-click/click from Map to open Quick Preview.
-  - `Left` / `Right`: Previous / Next item
-  - `F`: Favorite, `T`: Edit tags, `M`: Move to folder, `I`: Metadata Details, `Delete`: Recycle Bin
-  - `Enter`: Open original in your default Windows application (also plays videos!)
-  - `Esc` or `Space`: Close preview
+- **Open Originals Externally (`Enter` / Double-Click):** Press `Enter` or double-click any item in the gallery (or click **Open** from a Map pin, filmstrip, or place drawer) to open the original photo or video in your preferred Windows default software. Favorite (`F`), tag (`T`), move, rename (`F2`), and metadata details work directly from gallery cards, multi-select, and the Details inspector without an internal viewer overlay.
 - **Remembers where you left off:** When enabled in Settings, Luma restores your active view, filters, and scroll position on your next launch without rescanning external drives.
 
 ## 3. Organizing & Finding Media
@@ -34,7 +30,7 @@ Luma lets you browse photos and videos stored across your PC folders and externa
 - **Multi-word tags & Tag Manager:** Separate multiple tags with commas (`,`) or semicolons (`;`). Spaces inside a tag name (such as `Family Trip`) are preserved cleanly. Manage, merge, rename, or delete tags globally from **Organize tools -> Manage tags...** or **Settings -> Manage tags...**.
 - **Favorites & Virtual Albums:** Stored exclusively in Luma's local database on your PC. Drag selected items onto an album or use `+ Album` without moving originals.
 - **On this day:** Surfaces media captured on this calendar day in past years (`Memory day` picker lets you explore any date).
-- **Photo Map:** Uses bundled offline vector world maps by default. Your coordinates and files never leave your PC. Loading public OpenStreetMap street tiles requires an explicit per-session opt-in click.
+- **Photo Map:** Uses bundled offline vector world maps by default. Your coordinates and files never leave your PC. Extracted GPS coordinates and EXIF metadata are cached persistently in `catalog.db` (`meta_version = 2` keyed by file size and modified timestamp) and memoized in memory per catalog change, so Map View never rescans unchanged files until new or modified media arrive. Loading public OpenStreetMap street tiles requires an explicit per-session opt-in click.
 
 ## 4. Working Safely with External Drives
 
@@ -63,7 +59,7 @@ To uninstall Luma cleanly, close Luma, delete the extracted Luma app folder, and
 
 - `F1`: Open Keyboard shortcuts & help
 - `Ctrl+F`: Focus search
-- `Space`: Quick Preview (or toggle card in Select mode)
+- `Space`: Toggle focused card in Select mode
 - `Enter`: Open in default Windows app / play video
 - `Ctrl+A` / `Esc`: Select loaded cards / Clear selection or close overlay
 - `Ctrl+C` / `Ctrl+X` / `Ctrl+V`: Copy, Cut, Paste originals

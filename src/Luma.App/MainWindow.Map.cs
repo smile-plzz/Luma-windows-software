@@ -104,6 +104,40 @@ public sealed partial class MainWindow
     private CancellationTokenSource? mapSearchDebounceCts;
     private readonly ObservableCollection<MapStripItem> mapStripItems = new();
 
+    private long catalogGeneration = 1;
+    private long mapBackfillCleanGeneration = -1;
+    private long mapCacheGeneration = -1;
+    private LibraryQuery? mapCacheQuery;
+    private IReadOnlyList<GeoMarker>? mapCacheMarkers;
+    private MapLocationSummary? mapCacheSummary;
+    private IReadOnlyList<PlaceTaggedItem>? mapCachePlaceTagged;
+    private IReadOnlyList<LibraryItem>? mapCacheUnlocated;
+    private IReadOnlyList<VisitedPlaceSummary>? mapCacheVisitedPlaces;
+    private OfflineGeoCluster[]? mapCacheSpotClusters;
+    private long mapDropdownCacheGeneration = -1;
+    private LibraryQuery? mapDropdownCacheScope;
+    private List<MapFilterOption>? mapCacheYearItems;
+    private List<MapFilterOption>? mapCacheSourceItems;
+
+    private void InvalidateMapCache(bool resetBackfillCheck = true)
+    {
+        catalogGeneration++;
+        mapCacheGeneration = -1;
+        mapDropdownCacheGeneration = -1;
+        if (resetBackfillCheck) mapBackfillCleanGeneration = -1;
+    }
+
+    private Task OpenMediaExternallyAsync(string sourceId, string relativePath) => Guard(async () =>
+    {
+        var item = await Task.Run(() => catalog.GetItemAsync(sourceId, relativePath));
+        if (item is null)
+        {
+            Notify("This catalog entry is no longer available. Refresh the source to update the library.", true);
+            return;
+        }
+        ShellFiles.OpenInDefaultApp(Resolve(item.Media));
+    });
+
     private void SaveMapPreferencesToSettings()
     {
         settings.MapViewMode = mapViewMode;
@@ -218,16 +252,6 @@ public sealed partial class MainWindow
         }
     }
 
-    private async void PreviewShowOnMap(object sender, RoutedEventArgs e)
-    {
-        if (previewingCard?.Item.Metadata is { Latitude: double lat, Longitude: double lon })
-        {
-            returnToMapAfterPreview = false;
-            DoClosePreview();
-            await Guard(() => OpenMapAsync((lat, lon)));
-        }
-    }
-
     private async void PinSelectedOnMap(object sender, RoutedEventArgs e)
     {
         var targets = GetSelectedCards().Select(c => c.Item.Media).ToArray();
@@ -294,33 +318,52 @@ public sealed partial class MainWindow
             var baseScope = MapMatchGalleryToggle.IsChecked == true
                 ? (activeQuery ?? CurrentQuery()) with { HasGpsOnly = false, MapBounds = null, Search = "" }
                 : new LibraryQuery();
-            var buckets = await Task.Run(() => catalog.MonthBucketsAsync(baseScope));
-            var years = buckets
-                .Select(b => b.Month.Length >= 4 ? b.Month[..4] : "")
-                .Where(y => y.Length == 4)
-                .Distinct()
-                .OrderByDescending(y => y)
-                .ToArray();
+
+            List<MapFilterOption> yearItems;
+            List<MapFilterOption> sourceItems;
+            if (mapDropdownCacheGeneration == catalogGeneration && mapDropdownCacheScope == baseScope &&
+                mapCacheYearItems is not null && mapCacheSourceItems is not null)
+            {
+                yearItems = mapCacheYearItems;
+                sourceItems = mapCacheSourceItems;
+            }
+            else
+            {
+                var buckets = await Task.Run(() => catalog.MonthBucketsAsync(baseScope));
+                var years = buckets
+                    .Select(b => b.Month.Length >= 4 ? b.Month[..4] : "")
+                    .Where(y => y.Length == 4)
+                    .Distinct()
+                    .OrderByDescending(y => y)
+                    .ToArray();
+
+                yearItems = new List<MapFilterOption> { new("All years", null) };
+                yearItems.AddRange(years.Select(y => new MapFilterOption(y, y)));
+
+                var sources = await Task.Run(() => catalog.SourcesAsync());
+                var labels = await Task.Run(() => catalog.SourceLabelsAsync());
+                sourceItems = new List<MapFilterOption> { new("All sources", null) };
+                foreach (var s in sources)
+                {
+                    var label = labels.GetValueOrDefault(s.Id, Path.GetFileName(s.RootPath.TrimEnd('\\')));
+                    if (string.IsNullOrWhiteSpace(label)) label = s.RootPath;
+                    if (!s.IsOnline) label += " (offline)";
+                    sourceItems.Add(new(label, s.Id));
+                }
+
+                mapDropdownCacheGeneration = catalogGeneration;
+                mapDropdownCacheScope = baseScope;
+                mapCacheYearItems = yearItems;
+                mapCacheSourceItems = sourceItems;
+            }
 
             var prevYear = (MapYearFilter.SelectedItem as MapFilterOption)?.Value ?? settings.MapYear;
-            var yearItems = new List<MapFilterOption> { new("All years", null) };
-            yearItems.AddRange(years.Select(y => new MapFilterOption(y, y)));
             MapYearFilter.ItemsSource = yearItems;
             MapYearFilter.SelectedIndex = prevYear is not null
                 ? Math.Max(0, yearItems.FindIndex(o => o.Value == prevYear))
                 : 0;
 
-            var sources = await Task.Run(() => catalog.SourcesAsync());
-            var labels = await Task.Run(() => catalog.SourceLabelsAsync());
             var prevSource = (MapSourceFilter.SelectedItem as MapFilterOption)?.Value ?? settings.MapSourceId;
-            var sourceItems = new List<MapFilterOption> { new("All sources", null) };
-            foreach (var s in sources)
-            {
-                var label = labels.GetValueOrDefault(s.Id, Path.GetFileName(s.RootPath.TrimEnd('\\')));
-                if (string.IsNullOrWhiteSpace(label)) label = s.RootPath;
-                if (!s.IsOnline) label += " (offline)";
-                sourceItems.Add(new(label, s.Id));
-            }
             MapSourceFilter.ItemsSource = sourceItems;
             MapSourceFilter.SelectedIndex = prevSource is not null
                 ? Math.Max(0, sourceItems.FindIndex(o => o.Value == prevSource))
@@ -423,19 +466,53 @@ public sealed partial class MainWindow
         var query = BuildMapFilterQuery(out int activeFilterCount);
         UpdateActiveFilterChip(activeFilterCount);
 
-        var markersTask = Task.Run(() => catalog.QueryGeotaggedMarkersAsync(query, 25000));
-        var summaryTask = Task.Run(() => catalog.QueryMapSummaryAsync(query));
-        var placeTask = Task.Run(() => catalog.QueryPlaceTaggedWithoutCoordsAsync(query, 300));
-        var unlocatedTask = Task.Run(() => catalog.QueryUnlocatedItemsAsync(query, 150));
+        MapLocationSummary summary;
+        IReadOnlyList<PlaceTaggedItem> placeTagged;
+        IReadOnlyList<LibraryItem> unlocated;
+        OfflineGeoCluster[] spotClusters;
 
-        await Task.WhenAll(markersTask, summaryTask, placeTask, unlocatedTask);
+        if (mapCacheGeneration == catalogGeneration &&
+            mapCacheQuery == query &&
+            mapCacheMarkers is not null &&
+            mapCacheSummary is not null &&
+            mapCachePlaceTagged is not null &&
+            mapCacheUnlocated is not null &&
+            mapCacheVisitedPlaces is not null &&
+            mapCacheSpotClusters is not null)
+        {
+            currentMapMarkers = mapCacheMarkers;
+            summary = mapCacheSummary;
+            placeTagged = mapCachePlaceTagged;
+            unlocated = mapCacheUnlocated;
+            currentVisitedPlaces = mapCacheVisitedPlaces;
+            spotClusters = PopulateOfflineDrawerLists(placeTagged, unlocated);
+        }
+        else
+        {
+            var markersTask = Task.Run(() => catalog.QueryGeotaggedMarkersAsync(query, 25000));
+            var summaryTask = Task.Run(() => catalog.QueryMapSummaryAsync(query));
+            var placeTask = Task.Run(() => catalog.QueryPlaceTaggedWithoutCoordsAsync(query, 300));
+            var unlocatedTask = Task.Run(() => catalog.QueryUnlocatedItemsAsync(query, 150));
 
-        currentMapMarkers = markersTask.Result;
-        var summary = summaryTask.Result;
-        var placeTagged = placeTask.Result;
-        var unlocated = unlocatedTask.Result;
+            await Task.WhenAll(markersTask, summaryTask, placeTask, unlocatedTask);
 
-        currentVisitedPlaces = await Task.Run(() => MapOverviewBuilder.BuildVisitedPlaces(currentMapMarkers, 120));
+            currentMapMarkers = markersTask.Result;
+            summary = summaryTask.Result;
+            placeTagged = placeTask.Result;
+            unlocated = unlocatedTask.Result;
+
+            currentVisitedPlaces = await Task.Run(() => MapOverviewBuilder.BuildVisitedPlaces(currentMapMarkers, 120));
+            spotClusters = PopulateOfflineDrawerLists(placeTagged, unlocated);
+
+            mapCacheGeneration = catalogGeneration;
+            mapCacheQuery = query;
+            mapCacheMarkers = currentMapMarkers;
+            mapCacheSummary = summary;
+            mapCachePlaceTagged = placeTagged;
+            mapCacheUnlocated = unlocated;
+            mapCacheVisitedPlaces = currentVisitedPlaces;
+            mapCacheSpotClusters = spotClusters;
+        }
 
         if (currentVisitedPlaces.Count > 0)
         {
@@ -450,7 +527,6 @@ public sealed partial class MainWindow
                 : $"{summary.GeotaggedCount:N0} mapped";
         }
 
-        var spotClusters = PopulateOfflineDrawerLists(placeTagged, unlocated);
         MapTabPlaces.Content = $"Places ({currentVisitedPlaces.Count:N0})";
         MapTabClusters.Content = $"Spots ({spotClusters.Length:N0})";
         MapTabPlaceTags.Content = $"Tags ({summary.PlaceTagOnlyCount:N0})";
@@ -572,6 +648,7 @@ public sealed partial class MainWindow
     private async Task StartConnectedMetadataBackfillIfNeededAsync(bool forceRestart)
     {
         if (scanning || (mapBackfillRunning && !forceRestart)) return;
+        if (!forceRestart && mapBackfillCleanGeneration == catalogGeneration) return;
         if (forceRestart)
         {
             mapBackfillCts?.Cancel();
@@ -579,10 +656,21 @@ public sealed partial class MainWindow
 
         var sources = await Task.Run(() => catalog.SourcesAsync());
         var onlineIds = sources.Where(s => s.IsOnline).Select(s => s.Id).ToArray();
-        if (onlineIds.Length == 0) return;
+        if (onlineIds.Length == 0)
+        {
+            if (forceRestart)
+                Notify("No connected sources to check. Saved map locations remain cached offline.");
+            return;
+        }
 
         var pendingTotal = await Task.Run(() => catalog.CountPendingMetadataBackfillAsync(null, onlineIds));
-        if (pendingTotal <= 0) return;
+        if (pendingTotal <= 0)
+        {
+            mapBackfillCleanGeneration = catalogGeneration;
+            if (forceRestart)
+                Notify($"Map metadata cache is up to date across {onlineIds.Length:N0} connected source(s). New or changed files update automatically.");
+            return;
+        }
 
         mapBackfillCts?.Dispose();
         mapBackfillCts = new CancellationTokenSource();
@@ -633,6 +721,10 @@ public sealed partial class MainWindow
                 processedOffset += sourceCount;
             }
 
+            if (totalUpdated > 0)
+                InvalidateMapCache(resetBackfillCheck: false);
+            mapBackfillCleanGeneration = catalogGeneration;
+
             if (MapOverlay.Visibility == Visibility.Visible)
             {
                 var mode = currentMapMarkers.Count == 0 && !settings.MapHasSavedViewport
@@ -643,6 +735,11 @@ public sealed partial class MainWindow
             if (totalUpdated > 0)
             {
                 Status.Text = $"Indexed location & EXIF metadata for {totalUpdated:N0} file(s)";
+                Notify($"Cached GPS & location metadata for {totalUpdated:N0} file(s). Future visits reuse this cache.");
+            }
+            else if (forceRestart)
+            {
+                Notify("Checked pending files; map metadata cache is now up to date.");
             }
         }
         catch (OperationCanceledException)
@@ -758,6 +855,7 @@ public sealed partial class MainWindow
         if (result == ContentDialogResult.Secondary)
         {
             await catalog.AssignLocationAsync(targets, null, null, null);
+            InvalidateMapCache(resetBackfillCheck: false);
             pendingPinMedia = Array.Empty<CachedMedia>();
             mapPinMode = false;
             MapPinModeToggle.IsChecked = false;
@@ -784,6 +882,7 @@ public sealed partial class MainWindow
         }
 
         await catalog.AssignLocationAsync(targets, parsedLat, parsedLon, placeBox.Text);
+        InvalidateMapCache(resetBackfillCheck: false);
         pendingPinMedia = Array.Empty<CachedMedia>();
         mapPinMode = false;
         MapPinModeToggle.IsChecked = false;
@@ -1234,8 +1333,7 @@ public sealed partial class MainWindow
                 }
                 else
                 {
-                    var item = await Task.Run(() => catalog.GetItemAsync(cell.SampleMarker.SourceId, cell.SampleMarker.RelativePath));
-                    if (item is not null) OpenPreviewFromMap(new MediaCard(item, settings));
+                    await OpenMediaExternallyAsync(cell.SampleMarker.SourceId, cell.SampleMarker.RelativePath);
                 }
             };
 
@@ -1314,8 +1412,7 @@ public sealed partial class MainWindow
                 }
                 else
                 {
-                    var item = await Task.Run(() => catalog.GetItemAsync(place.Representative.SourceId, place.Representative.RelativePath));
-                    if (item is not null) OpenPreviewFromMap(new MediaCard(item, settings));
+                    await OpenMediaExternallyAsync(place.Representative.SourceId, place.Representative.RelativePath);
                 }
             };
 
@@ -1369,8 +1466,7 @@ public sealed partial class MainWindow
                 {
                     if (mapPinMode) return;
                     args.Handled = true;
-                    var item = await Task.Run(() => catalog.GetItemAsync(m.SourceId, m.RelativePath));
-                    if (item is not null) OpenPreviewFromMap(new MediaCard(item, settings));
+                    await OpenMediaExternallyAsync(m.SourceId, m.RelativePath);
                 };
                 Canvas.SetLeft(dot, px - 7);
                 Canvas.SetTop(dot, py - 7);
@@ -1533,7 +1629,7 @@ public sealed partial class MainWindow
             {
                 Marker = m,
                 Label = label,
-                Tooltip = $"{m.Name}\n{t}\n{m.Latitude:0.0000}, {m.Longitude:0.0000}"
+                Tooltip = $"{m.Name}\n{t}\n{m.Latitude:0.0000}, {m.Longitude:0.0000}\nClick to open in default app"
             });
         }
 
@@ -1568,9 +1664,7 @@ public sealed partial class MainWindow
     private async void MapFilmstripItemClicked(object sender, ItemClickEventArgs e)
     {
         if (e.ClickedItem is not MapStripItem card) return;
-        var m = card.Marker;
-        var item = await Task.Run(() => catalog.GetItemAsync(m.SourceId, m.RelativePath));
-        if (item is not null) OpenPreviewFromMap(new MediaCard(item, settings));
+        await OpenMediaExternallyAsync(card.Marker.SourceId, card.Marker.RelativePath);
     }
 
     // ---- Online WebView2 Map ----
@@ -1746,17 +1840,11 @@ public sealed partial class MainWindow
                     }
                 }
             }
-            else if (msgType == "openPreview")
+            else if (msgType is "openFile" or "openPreview")
             {
                 var sourceId = root.GetProperty("sourceId").GetString() ?? "";
                 var relPath = root.GetProperty("relativePath").GetString() ?? "";
-                var card = cards.FirstOrDefault(c => c.Item.Media.SourceId == sourceId && c.Item.Media.RelativePath == relPath);
-                if (card is null)
-                {
-                    var match = await Task.Run(() => catalog.GetItemAsync(sourceId, relPath));
-                    if (match is not null) card = new MediaCard(match, settings);
-                }
-                if (card is not null) OpenPreviewFromMap(card);
+                await OpenMediaExternallyAsync(sourceId, relPath);
             }
             else if (msgType == "filterBounds")
             {
@@ -1844,13 +1932,10 @@ public sealed partial class MainWindow
         }
     }
 
-    private async void MapPlacePreviewClicked(object sender, RoutedEventArgs e)
+    private async void MapPlaceOpenClicked(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: VisitedPlaceSummary place })
-        {
-            var item = await Task.Run(() => catalog.GetItemAsync(place.Representative.SourceId, place.Representative.RelativePath));
-            if (item is not null) OpenPreviewFromMap(new MediaCard(item, settings));
-        }
+            await OpenMediaExternallyAsync(place.Representative.SourceId, place.Representative.RelativePath);
     }
 
     private void MapOfflineGroupZoomClicked(object sender, RoutedEventArgs e)
@@ -1884,11 +1969,10 @@ public sealed partial class MainWindow
         }
     }
 
-    private async void MapDrawerItemPreviewClicked(object sender, RoutedEventArgs e)
+    private async void MapDrawerItemOpenClicked(object sender, RoutedEventArgs e)
     {
-        if (sender is not FrameworkElement { Tag: MapDrawerMediaRow row }) return;
-        var item = await Task.Run(() => catalog.GetItemAsync(row.Media.SourceId, row.Media.RelativePath));
-        if (item is not null) OpenPreviewFromMap(new MediaCard(item, settings));
+        if (sender is FrameworkElement { Tag: MapDrawerMediaRow row })
+            await OpenMediaExternallyAsync(row.Media.SourceId, row.Media.RelativePath);
     }
 
     private async void MapDrawerItemPinClicked(object sender, RoutedEventArgs e)
@@ -1906,6 +1990,7 @@ public sealed partial class MainWindow
         try { settings.Save(); } catch { }
         mapPinMode = false;
         MapPinModeToggle.IsChecked = false;
+        if (MapNotice is not null) MapNotice.IsOpen = false;
         MapOverlay.Visibility = Visibility.Collapsed;
     }
 }

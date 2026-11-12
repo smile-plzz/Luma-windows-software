@@ -88,6 +88,7 @@ public sealed partial class MediaCache
             CREATE INDEX IF NOT EXISTS ix_metadata_coords ON metadata(latitude, longitude) WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
             CREATE INDEX IF NOT EXISTS ix_metadata_dims ON metadata(width, height, duration);
             CREATE INDEX IF NOT EXISTS ix_metadata_locname ON metadata(location_name) WHERE location_name IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS ix_metadata_lookup ON metadata(source_id, relative_path, length, modified_ticks, meta_version);
             """;
         await idxCmd.ExecuteNonQueryAsync(ct);
     }

@@ -119,15 +119,15 @@ Consequences: Document Windows 10 2004+ / Windows 11 x64 requirement explicitly 
 Evidence: `src/Luma.App/Luma.App.csproj`, `.github/workflows/build.yml`.
 Reversible: yes
 
-## D-11: Video browsing boundaries and codec honesty
+## D-11: External media viewing, video boundaries, and codec honesty
 Date: 2026-11-12
-Context: Luma lists video files alongside photos (`mp4`, `mov`, `mkv`, `avi`, `webm`, `wmv`, `m4v`, `3gp`). Users clicking a video in Quick Preview may expect in-app video playback or struggle with missing HEVC/RAW thumbnails on bare Windows installs.
+Context: Luma lists photos and video files (`mp4`, `mov`, `mkv`, `avi`, `webm`, `wmv`, `m4v`, `3gp`) across local and external drives. Users double-clicking or opening an item expect their native Windows photo viewer or video player rather than maintaining a duplicate in-app media viewer, while bare Windows installs can still lack HEVC/RAW thumbnail codecs.
 Options:
-- A: Embed a heavy media engine (`LibVLC` / `FFmpeg` / `MediaPlayerElement`) with complex audio/codec licensing burdens.
-- B: Explicitly frame video support as fast browsing, duration/capture-date indexing, Windows thumbnail generation, and one-key handoff (`Enter` / double-click / `Open`) to the user's preferred Windows player (VLC, Photos, Movies & TV). Surface this cue directly inside Quick Preview when previewing video files, alongside codec troubleshooting (`HEVC Video Extensions` / `Raw Image Extension`) when Windows cannot render a thumbnail.
-Decision: Option B. Keeps Luma fast, lightweight, and faithful to non-goals while eliminating surprise when previewing videos.
-Consequences: Added clear Quick Preview video action cue (`"Video preview frame · Press Enter or double-click to play in default app"`) and documented codec limits in `docs/KNOWN_LIMITS.md`.
-Evidence: `src/Luma.App/MainWindow.Preview.cs`, `docs/FORMATS.md`, `docs/KNOWN_LIMITS.md`.
+- A: Maintain an in-app full-screen preview overlay and/or embed a heavy media engine (`LibVLC` / `FFmpeg` / `MediaPlayerElement`) with audio/codec licensing burdens.
+- B: Keep Luma focused as a fast thumbnail browser, organizer, and map index, and open originals directly in the user's preferred Windows default app (`Enter` / double-click / `Open` in gallery or Map via `ShellFiles.OpenInDefaultApp`), alongside codec troubleshooting (`HEVC Video Extensions` / `Raw Image Extension`) when Windows cannot render a thumbnail.
+Decision: Option B. Keeps Luma lightweight, avoids duplicating OS viewers, and respects user-chosen viewers and players.
+Consequences: Removed in-app `PreviewOverlay` (`MainWindow.Preview.cs`) so every open action across Gallery and Map launches the external Windows default app; documented codec limits in `docs/KNOWN_LIMITS.md`.
+Evidence: `src/Luma.App/ShellFiles.cs`, `src/Luma.App/MainWindow.xaml.cs`, `src/Luma.App/MainWindow.Map.cs`, `docs/FORMATS.md`, `docs/KNOWN_LIMITS.md`.
 Reversible: yes
 
 ## D-12: Metadata extraction and deterministic capture-date fallback
@@ -139,4 +139,15 @@ Options:
 Decision: Option B. Preserves accurate Memories ("On this day") and avoids false future/1970 clustering when files are copied between drives.
 Consequences: Document exact precedence in `docs/USER_GUIDE.md`; add security/torture unit tests in `Luma.Tests`.
 Evidence: `src/Luma.Windows/WindowsMetadataReader.cs`, `src/Luma.Core/MinimalGpsExtractor.cs`, `src/Luma.Core/ResumableIndexing.cs`, `tests/Luma.Tests/IndexingAndMemoriesTests.cs`.
+Reversible: yes
+
+## D-13: External-only media opening and SQLite + in-memory Map metadata caching
+Date: 2026-11-12
+Context: Owner feedback highlighted two everyday UX expectations: (1) Map View should persist extracted GPS/EXIF metadata in cache so populated libraries do not repeatedly rescan unchanged files unless new or modified files arrive, and (2) clicking or opening photos from Gallery or Map should hand directly off to the user's external Windows software instead of an internal photo viewer overlay.
+Options:
+- A: Keep internal `PreviewOverlay` (`Space` / Map clicks) alongside basic DB persistence without in-session Map query/backfill memoization.
+- B: Remove `PreviewOverlay` (`MainWindow.Preview.cs`) completely, route all Gallery and Map pin/popup/filmstrip/drawer open actions to `ShellFiles.OpenInDefaultApp` (with in-overlay `MapNotice` offline feedback), add `ix_metadata_lookup` covering index on `metadata`, treat unreadable codec headers via `MinimalGpsExtractor` + `MetaVersion = 2` negative caching (retrying only vanished paths and changed `(length, modified_ticks)`), and memoize Map SQL results, filter dropdowns, and connected backfill cleanliness per `catalogGeneration`.
+Decision: Option B. Eliminates redundant SQLite/file rescans in Map View and guarantees native Windows app opening everywhere.
+Consequences: Verified zero re-reads of unchanged GPS/non-GPS files in `MapMetadataCache_SkipsUnchangedFilesIncludingNonGpsAndScansOnlyNewOrChangedFiles`, `8/8` Windows reader tests, clean desktop smoke test, and updated user documentation (`README.md`, `USER_GUIDE.md`, `TROUBLESHOOTING.md`, `KNOWN_LIMITS.md`, `ACCESSIBILITY.md`).
+Evidence: `src/Luma.Core/Organization.cs`, `src/Luma.Windows/WindowsMetadataReader.cs`, `src/Luma.App/MainWindow.Map.cs`, `src/Luma.App/MainWindow.xaml`, `src/Luma.App/Assets/Map/map.html`, `tests/Luma.Tests/StabilizationTests.cs`.
 Reversible: yes

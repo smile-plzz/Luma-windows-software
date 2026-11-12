@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using Luma.Core;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Data;
@@ -386,11 +388,11 @@ public sealed partial class MainWindow
             queryCancellation?.Cancel(); queryCancellation = new(); var token = queryCancellation.Token;
             loadedStart = startOffset; ResumeNavigation.Visibility = loadedStart > 0 ? Visibility.Visible : Visibility.Collapsed;
             cursor = null; exhausted = false; loading = false; pendingLoadMore = false;
-            foreach (var card in cards) { card.Realized = false; card.Thumbnail = null; card.ThumbnailRequest?.Cancel(); card.ThumbnailRequest = null; }
+            foreach (var card in cards) card.Discard();
+            MediaGrid.ItemsSource = null;
+            JustifiedRowsList.ItemsSource = null;
             cards.Clear(); groups.Clear(); justifiedRows.Clear(); adaptiveSelectedCards.Clear();
             activeQuery = CurrentQuery();
-            if (Grouped) MediaGrid.ItemsSource = new CollectionViewSource { IsSourceGrouped = true, Source = groups }.View;
-            else MediaGrid.ItemsSource = cards;
             galleryScroll?.ChangeView(null, 0, null, true);
             adaptiveScroll?.ChangeView(null, 0, null, true);
             EmptyState.Visibility = Visibility.Collapsed; Busy.IsActive = true;
@@ -398,6 +400,9 @@ public sealed partial class MainWindow
 
             libraryTotal = (await Task.Run(() => catalog.SourceCountsAsync(token), token)).Values.Sum();
             token.ThrowIfCancellationRequested();
+            if (Grouped) MediaGrid.ItemsSource = new CollectionViewSource { IsSourceGrouped = true, Source = groups }.View;
+            else MediaGrid.ItemsSource = cards;
+            if (settings.LayoutMode != "Uniform") JustifiedRowsList.ItemsSource = justifiedRows;
             BuildFilterChips();
 
             // Render first page immediately for sub-second first paint
@@ -467,10 +472,6 @@ public sealed partial class MainWindow
             }
         }
 
-        if (settings.LayoutMode == "Uniform") MediaGrid.UpdateLayout();
-        else JustifiedRowsList.UpdateLayout();
-
-        TryRestore();
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, TryRestore);
     }
 
@@ -489,6 +490,7 @@ public sealed partial class MainWindow
         try
         {
             var page = await Task.Run(() => catalog.QueryAsync(query, ct), ct); ct.ThrowIfCancellationRequested();
+            if (generation != queryCancellation) return;
             var activeScroll = ActiveGalleryScroll();
             var preservedOffset = activeScroll?.VerticalOffset ?? 0;
             var hadScroll = isSubsequentPage && preservedOffset > 40;
@@ -642,6 +644,10 @@ public sealed partial class MainWindow
         if (e.ItemContainer.Tag is MediaCard previous && (e.InRecycleQueue || !ReferenceEquals(previous, e.Item)))
         { previous.Realized = false; previous.Thumbnail = null; previous.ThumbnailRequest?.Cancel(); previous.ThumbnailRequest = null; }
         e.ItemContainer.Tag = e.InRecycleQueue ? null : e.Item;
+        var a11yView = e.InRecycleQueue ? AccessibilityView.Raw : AccessibilityView.Content;
+        AutomationProperties.SetAccessibilityView(e.ItemContainer, a11yView);
+        if (e.ItemContainer.ContentTemplateRoot is DependencyObject rootObj)
+            AutomationProperties.SetAccessibilityView(rootObj, a11yView);
         if (e.Item is not MediaCard card) return;
         card.Realized = !e.InRecycleQueue;
         if (e.InRecycleQueue) { card.Thumbnail = null; return; }
@@ -661,6 +667,10 @@ public sealed partial class MainWindow
             }
         }
         e.ItemContainer.Tag = e.InRecycleQueue ? null : e.Item;
+        var a11yView = e.InRecycleQueue ? AccessibilityView.Raw : AccessibilityView.Content;
+        AutomationProperties.SetAccessibilityView(e.ItemContainer, a11yView);
+        if (e.ItemContainer.ContentTemplateRoot is DependencyObject rootObj)
+            AutomationProperties.SetAccessibilityView(rootObj, a11yView);
         if (e.Item is not GalleryRow row) return;
         foreach (var card in row.Items)
         {
@@ -724,6 +734,7 @@ public sealed partial class MainWindow
         {
             var fav = !card.Item.Favorite;
             await catalog.AnnotateAsync(card.Item.Media, fav, card.Item.Tags);
+            InvalidateMapCache(resetBackfillCheck: false);
             card.UpdateItem(card.Item with { Favorite = fav });
             Notify(fav ? $"Added {card.Name} to Favorites." : $"Removed {card.Name} from Favorites.");
         });
@@ -893,7 +904,15 @@ public sealed partial class MainWindow
 
     private async void SearchChanged(object sender, TextChangedEventArgs e)
     {
-        if (!ready || restoringPlace) return; searchCancellation?.Cancel(); var cts = new CancellationTokenSource(); searchCancellation = cts;
+        if (!ready || restoringPlace) return;
+        searchCancellation?.Cancel();
+        if (activeQuery is not null
+            && string.Equals(SearchBox.Text.Trim(), activeQuery.Search ?? "", StringComparison.Ordinal)
+            && string.Equals(FolderFilter.Text.Trim(), activeQuery.Folder ?? "", StringComparison.Ordinal))
+        {
+            return;
+        }
+        var cts = new CancellationTokenSource(); searchCancellation = cts;
         try { await Task.Delay(300, cts.Token); RecordRecentSearch(SearchBox.Text.Trim()); ClearDateRange(); await Guard(Refresh); } catch (OperationCanceledException) { }
     }
 

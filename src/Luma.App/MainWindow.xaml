@@ -161,6 +161,10 @@
      <MenuFlyoutItem Text="Save view as Smart Collection…" Click="SaveCurrentAsSmartCollection"/>
      <MenuFlyoutSeparator/>
      <MenuFlyoutItem Text="Review / Undo last transfer…" Click="ReviewLastTransfer"/>
+     <MenuFlyoutSeparator/>
+     <MenuFlyoutItem Text="Exclude selected folder…" Click="ExcludeFolder"/>
+     <MenuFlyoutItem Text="Exclude selected source…" Click="ExcludeSource"/>
+     <MenuFlyoutItem Text="Exclude selected file type…" Click="ExcludeType"/>
     </MenuFlyout></Button.Flyout></Button>
     <ToggleButton x:Name="InspectorToggle" AutomationProperties.AutomationId="InspectorToggle" Content="Details" ToolTipService.ToolTip="Show file details" Checked="InspectorChanged" Unchecked="InspectorChanged"/>
    </StackPanel>
@@ -193,7 +197,7 @@
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
 
     <!-- Uniform Grid View (Default) -->
-    <GridView x:Name="MediaGrid" AutomationProperties.AutomationId="MediaGrid" SelectionMode="Extended" IsSynchronizedWithCurrentItem="False" IsItemClickEnabled="False" DoubleTapped="GridDoubleTapped" SelectionChanged="SelectionChanged" RightTapped="GridRightTapped" KeyDown="GallerySpaceKeyDown" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ContainerContentChanging="TileChanging" Loaded="GalleryLoaded" CanDragItems="True" DragItemsStarting="StartDrag" PointerWheelChanged="GalleryWheel">
+    <GridView x:Name="MediaGrid" AutomationProperties.AutomationId="MediaGrid" SelectionMode="Extended" IsSynchronizedWithCurrentItem="False" IsItemClickEnabled="False" DoubleTapped="GridDoubleTapped" SelectionChanged="SelectionChanged" RightTapped="GridRightTapped" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ContainerContentChanging="TileChanging" Loaded="GalleryLoaded" CanDragItems="True" DragItemsStarting="StartDrag" PointerWheelChanged="GalleryWheel">
      <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal"/></ItemsPanelTemplate></GridView.ItemsPanel>
      <GridView.GroupStyle><GroupStyle><GroupStyle.HeaderTemplate><DataTemplate><TextBlock Text="{Binding Key}" FontSize="20" FontWeight="SemiBold" CharacterSpacing="-15" Margin="5,20,0,10"/></DataTemplate></GroupStyle.HeaderTemplate></GroupStyle></GridView.GroupStyle>
      <GridView.ItemTemplate><DataTemplate>
@@ -225,7 +229,7 @@
     </GridView>
 
     <!-- Adaptive Proportions / Moments Justified Row View -->
-    <ListView x:Name="JustifiedRowsList" Visibility="Collapsed" SelectionMode="None" IsSynchronizedWithCurrentItem="False" KeyDown="GallerySpaceKeyDown" Loaded="JustifiedListLoaded" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ContainerContentChanging="JustifiedRowChanging" SizeChanged="JustifiedList_SizeChanged" PointerWheelChanged="GalleryWheel">
+    <ListView x:Name="JustifiedRowsList" Visibility="Collapsed" SelectionMode="None" IsSynchronizedWithCurrentItem="False" Loaded="JustifiedListLoaded" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ContainerContentChanging="JustifiedRowChanging" SizeChanged="JustifiedList_SizeChanged" PointerWheelChanged="GalleryWheel">
      <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/></Style></ListView.ItemContainerStyle>
      <ListView.ItemTemplate><DataTemplate>
       <StackPanel Margin="0,0,0,8">
@@ -314,61 +318,6 @@
    </Grid>
   </Grid>
 
-  <!-- Quick Preview Overlay (Spacebar / Triage) -->
-  <Grid x:Name="PreviewOverlay" Grid.ColumnSpan="2" Background="#E6101012" Visibility="Collapsed" KeyDown="PreviewOverlay_KeyDown">
-   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <Grid Grid.Row="0" Grid.ColumnSpan="2" Padding="20,12" Background="#44000000">
-    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-     <TextBlock x:Name="PreviewTitle" Text="Photo preview" FontWeight="SemiBold" FontSize="15" Foreground="White" MaxWidth="380" TextTrimming="CharacterEllipsis"/>
-     <TextBlock x:Name="PreviewPosition" Text="1 of 120" FontSize="12" Foreground="#AAFFFFFF" VerticalAlignment="Center"/>
-     <Border Background="#33FFFFFF" CornerRadius="6" Padding="8,2" VerticalAlignment="Center">
-      <TextBlock x:Name="PreviewExactTimeBadge" Text="" FontSize="11" Foreground="White"/>
-     </Border>
-     <Border x:Name="PreviewOfflineBadge" Background="#AAFF8800" CornerRadius="4" Padding="6,2" Visibility="Collapsed">
-      <TextBlock Text="Original offline · Cached preview" FontSize="11" Foreground="Black" FontWeight="Medium"/>
-     </Border>
-     <Border x:Name="PreviewVideoBadge" Background="#33FFFFFF" CornerRadius="4" Padding="8,2" Visibility="Collapsed">
-      <TextBlock Text="Video frame · Press Enter or Open to play in default app" FontSize="11" Foreground="White"/>
-     </Border>
-    </StackPanel>
-    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
-     <Button x:Name="PreviewFavoriteButton" Content="☆ (F)" Foreground="White" Click="PreviewToggleFavorite" ToolTipService.ToolTip="Toggle favorite (F)"/>
-     <Button Content="Tag (T)" Foreground="White" Click="PreviewQuickTag" ToolTipService.ToolTip="Edit tags (T)"/>
-     <Button Content="Move (M)" Foreground="White" Click="PreviewQuickMove" ToolTipService.ToolTip="Move to folder (M)"/>
-     <Button x:Name="PreviewMapButton" Content="Map" Foreground="White" Visibility="Collapsed" Click="PreviewShowOnMap" ToolTipService.ToolTip="Show photo location on map"/>
-     <Button Content="Delete" Foreground="#FCA5A5" Click="PreviewDelete" ToolTipService.ToolTip="Delete to Recycle Bin (Del)"/>
-     <ToggleButton x:Name="PreviewAutoAdvanceToggle" Content="Auto-next" Foreground="White" IsChecked="True" ToolTipService.ToolTip="Automatically step to next item after Move or Delete"/>
-     <Button x:Name="PreviewInspectorToggle" Content="ℹ Details" Foreground="White" Click="TogglePreviewInspector" ToolTipService.ToolTip="Show/hide metadata details (I)"/>
-     <Button x:Name="PreviewCloseButton" Content="✕ Close" Foreground="White" Click="ClosePreview" ToolTipService.ToolTip="Close preview (Space or Esc)"/>
-    </StackPanel>
-   </Grid>
-   <ScrollViewer Grid.Row="1" Grid.Column="0" x:Name="PreviewScroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" ZoomMode="Enabled" MinZoomFactor="1.0" MaxZoomFactor="5.0" DoubleTapped="PreviewScroller_DoubleTapped">
-    <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-     <Image x:Name="PreviewImage" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-     <ProgressRing x:Name="PreviewLoading" Width="36" Height="36" IsActive="False" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-    </Grid>
-   </ScrollViewer>
-   <Border Grid.Row="1" Grid.Column="1" x:Name="PreviewInfoSidebar" Width="288" Background="#EE1C1C1F" BorderBrush="#33FFFFFF" BorderThickness="1,0,0,0" Padding="16" Visibility="Collapsed">
-    <ScrollViewer>
-     <StackPanel Spacing="12">
-      <TextBlock Text="Metadata" FontSize="16" FontWeight="SemiBold" Foreground="White"/>
-      <TextBlock x:Name="PreviewDetailsText" Text="Metadata details" TextWrapping="Wrap" Foreground="#DDFFFFFF" FontSize="12" IsTextSelectionEnabled="True"/>
-      <MenuFlyoutSeparator/>
-      <Button Content="Open in default app" Foreground="White" Click="PreviewOpenDefault" HorizontalAlignment="Stretch"/>
-      <Button Content="Show in Explorer" Foreground="White" Click="PreviewRevealExplorer" HorizontalAlignment="Stretch"/>
-     </StackPanel>
-    </ScrollViewer>
-   </Border>
-   <Grid Grid.Row="2" Grid.ColumnSpan="2" Padding="20,10" Background="#44000000">
-    <StackPanel Orientation="Horizontal" Spacing="16" HorizontalAlignment="Center">
-     <Button Content="◀ Previous" Foreground="White" Click="PreviewPrevious" ToolTipService.ToolTip="Previous item (Left arrow)"/>
-     <Button Content="Next ▶" Foreground="White" Click="PreviewNext" ToolTipService.ToolTip="Next item (Right arrow)"/>
-    </StackPanel>
-    <TextBlock Text="F Favorite · T Tag · M Move · Del Recycle · I Details · Space/Esc Close" FontSize="11" Foreground="#88FFFFFF" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-   </Grid>
-  </Grid>
-
   <!-- Dedicated Privacy-First Interactive Map Workspace -->
   <Grid x:Name="MapOverlay" Grid.ColumnSpan="2" Background="{ThemeResource LumaCanvas}" Visibility="Collapsed">
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -431,7 +380,7 @@
      <ToggleButton x:Name="MapDrawerToggle" Content="Locations" IsChecked="False" Checked="MapChromeToggled" Unchecked="MapChromeToggled" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Show or hide visited places, clusters, and unlocated media."/>
      <ToggleButton x:Name="MapStripToggle" Content="Filmstrip" IsChecked="False" Checked="MapChromeToggled" Unchecked="MapChromeToggled" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Show or hide photos visible in the current map view."/>
      <ToggleButton x:Name="MapPinModeToggle" Content="Pin mode" Checked="MapPinModeToggled" Unchecked="MapPinModeToggled" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Click anywhere on the map to assign catalog-only coordinates."/>
-     <Button x:Name="MapScanGpsButton" Content="Scan GPS" Click="TriggerMapBackfill" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Scan connected sources for missing GPS, video ISO-6709, or XMP location tags."/>
+     <Button x:Name="MapScanGpsButton" Content="Scan GPS" Click="TriggerMapBackfill" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Check connected sources for uncached GPS, video ISO-6709, or XMP location tags. Checked files remain cached."/>
      <Button x:Name="MapToggleModeButton" Content="Load online map (this session)" Click="ToggleMapModeClicked" Background="{ThemeResource LumaControl}" FontWeight="SemiBold"/>
     </StackPanel>
    </Grid>
@@ -439,6 +388,7 @@
    <!-- Full-Bleed Map Canvas (Offline / Online) + Collapsible Visited Places Drawer -->
    <Grid Grid.Row="1">
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <InfoBar x:Name="MapNotice" Grid.ColumnSpan="2" Canvas.ZIndex="20" IsOpen="False" IsClosable="True" HorizontalAlignment="Center" VerticalAlignment="Top" MaxWidth="760" Margin="16,12,16,0"/>
 
     <!-- Offline Interactive Map + Slim Floating Controls + Optional One-Time Privacy Pill -->
     <Grid x:Name="MapOfflinePanel">
@@ -519,7 +469,7 @@
            <StackPanel Orientation="Horizontal" Spacing="4">
             <Button Content="Focus" Tag="{Binding}" Click="MapPlaceFocusClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
             <Button Content="Show in gallery" Tag="{Binding}" Click="MapPlaceFilterClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
-            <Button Content="Preview" Tag="{Binding}" Click="MapPlacePreviewClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
+            <Button Content="Open" Tag="{Binding}" Click="MapPlaceOpenClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11" ToolTipService.ToolTip="Open sample photo in your default Windows app"/>
            </StackPanel>
           </StackPanel>
          </Border>
@@ -549,7 +499,7 @@
            <TextBlock Text="{Binding LocationName}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
            <TextBlock Text="{Binding Title}" FontSize="11" Opacity="0.75" TextTrimming="CharacterEllipsis"/>
            <StackPanel Orientation="Horizontal" Spacing="4">
-            <Button Content="Preview" Tag="{Binding}" Click="MapDrawerItemPreviewClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
+            <Button Content="Open" Tag="{Binding}" Click="MapDrawerItemOpenClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11" ToolTipService.ToolTip="Open original in your default Windows app"/>
             <Button Content="Pin coords…" Tag="{Binding}" Click="MapDrawerItemPinClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
            </StackPanel>
           </StackPanel>
@@ -564,7 +514,7 @@
            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
            <TextBlock Text="{Binding Subtitle}" FontSize="11" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
            <StackPanel Orientation="Horizontal" Spacing="4">
-            <Button Content="Preview" Tag="{Binding}" Click="MapDrawerItemPreviewClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
+            <Button Content="Open" Tag="{Binding}" Click="MapDrawerItemOpenClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11" ToolTipService.ToolTip="Open original in your default Windows app"/>
             <Button Content="Pin on map…" Tag="{Binding}" Click="MapDrawerItemPinClicked" Background="{ThemeResource LumaControl}" Padding="8,3" FontSize="11"/>
            </StackPanel>
           </StackPanel>

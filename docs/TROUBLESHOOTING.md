@@ -23,9 +23,9 @@ Check these causes in order:
   1. Install the needed free Windows extensions from the Microsoft Store (and HEVC if decoding iPhone video/HEIC streams).
   2. Open **Storage & previews -> Repair missing previews** in Luma to regenerate previews using the newly installed codecs.
 
-## Videos do not play inside Luma's Quick Preview
-- **Why:** By design (`D-11`), Quick Preview displays a crisp preview frame cleanly without shipping a multi-codec embedded video player.
-- **What to do:** Press `Enter`, double-click the item in the gallery, or click **Open in default app** inside Quick Preview Details (`I`) to play the video in your preferred Windows player (VLC, Photos, Movies & TV).
+## Opening photos full-screen or playing videos
+- **Why:** By design (`D-11`, `D-13`), Luma keeps indexing and browsing lightweight and delegates full-screen photo viewing and video playback to the default apps installed on your PC.
+- **What to do:** Press `Enter`, double-click the item in the gallery, or click **Open** (in gallery menus or Map View) to open the original file in your preferred Windows app (Photos, IrfanView, VLC, Movies & TV).
 
 ## External drive shows "Offline" even though it is plugged in
 - **What to do:**

@@ -12,7 +12,7 @@ Honest summary of what Luma does today, current boundaries, and platform constra
 - **Symlinks & junction points skipped:** Prevents directory loops and duplicate indexing.
 
 ## Formats, Codecs, and Videos
-- **Video playback happens externally:** Luma displays a still video preview frame in the gallery and Quick Preview (`D-11`). Pressing `Enter` or double-clicking hands playback directly to your Windows default media player.
+- **External photo viewing and video playback:** Luma focuses on fast library browsing and organization, without an internal full-screen viewer overlay or embedded video player (`D-11`, `D-13`). Pressing `Enter`, double-clicking, or clicking **Open** (in gallery menus or Map) hands originals directly to your Windows default app.
 - **System codec dependency:** RAW formats (CR2, CR3, NEF, ARW, DNG), HEIC/HEIF, AVIF, and certain MKV/MOV streams depend on Windows Imaging / Store Extensions installed on your PC. Missing codecs fall back cleanly to accessible placeholder cards.
 - **Embedded GPS/EXIF tolerance:** Exif/QuickTime/XMP metadata extraction runs read-only and skips corrupt files safely; capture dates outside valid calendar bounds fall back to earliest valid filesystem timestamps (`D-12`).
 

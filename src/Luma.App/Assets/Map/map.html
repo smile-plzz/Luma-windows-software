@@ -198,7 +198,7 @@
     <div id="popupName"></div>
     <div id="popupMeta"></div>
     <div class="popup-actions">
-      <button class="btn primary" id="popupOpenBtn" style="flex:1">Open preview</button>
+      <button class="btn primary" id="popupOpenBtn" style="flex:1">Open in default app</button>
       <button class="btn" id="popupFilterBtn" style="display:none">Filter spot</button>
       <button class="btn" id="popupCloseBtn">✕</button>
     </div>
@@ -803,7 +803,7 @@
   document.getElementById('popupCloseBtn').addEventListener('click', hidePopup);
   document.getElementById('popupOpenBtn').addEventListener('click', () => {
     if (state.activeItem && window.chrome && window.chrome.webview) {
-      window.chrome.webview.postMessage({ type: 'openPreview', sourceId: state.activeItem.sourceId, relativePath: state.activeItem.relativePath });
+      window.chrome.webview.postMessage({ type: 'openFile', sourceId: state.activeItem.sourceId, relativePath: state.activeItem.relativePath });
     }
   });
   popupFilterBtn.addEventListener('click', () => {

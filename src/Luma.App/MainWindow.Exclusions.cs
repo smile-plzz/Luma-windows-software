@@ -25,6 +25,7 @@ public sealed partial class MainWindow
         var scope=rule.Kind switch { "type"=>$"All {rule.Value.ToLowerInvariant()} files across every source", "source"=>$"Entire source: {root}",_=>$"Folder and subfolders: {Path.Combine(root,rule.Value)}" };
         if(!await Confirm("Exclude from Luma?",scope+"\n\nHide matching media and skip it in future scans. Originals and saved organization stay intact. Affected paused scan checkpoints will restart. Restore the rule in Manage exclusions to show saved media again.","Exclude"))return;
         await Task.Run(()=>catalog.SetExclusionAsync(rule,true));
+        InvalidateMapCache(resetBackfillCheck: true);
         await LoadAlbums(); await Refresh();
         Notify("Exclusion saved. Originals are untouched. Restore it in Manage exclusions.");
     }
@@ -48,7 +49,9 @@ public sealed partial class MainWindow
                 panel.Children.Add(Description(label));
                 var restore=ActionButton("Restore",()=>Choose(async ()=>
                 {
-                    await Task.Run(()=>catalog.SetExclusionAsync(rule,false));await LoadAlbums();await Refresh();
+                    await Task.Run(()=>catalog.SetExclusionAsync(rule,false));
+                    InvalidateMapCache(resetBackfillCheck: true);
+                    await LoadAlbums();await Refresh();
                     Notify("Exclusion restored. Saved media is visible unless another rule excludes it. Refresh to discover previously skipped files.");
                 }));
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(restore,"Restore "+label);panel.Children.Add(restore);

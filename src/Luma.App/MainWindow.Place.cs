@@ -58,25 +58,28 @@ public sealed partial class MainWindow
     {
         if (settings.LayoutMode == "Uniform")
         {
-            foreach(var card in cards.Where(c=>c.Realized))
-                if(MediaGrid.ContainerFromItem(card) is FrameworkElement container)
-                {
-                    var y=container.TransformToVisual(MediaGrid).TransformPoint(new Point(0,0)).Y;
-                    if(y+container.ActualHeight>0 && y<MediaGrid.ActualHeight)return (card,y);
-                }
+            var found = FindAnchorInHost(MediaGrid, cards.Where(c => c.Realized).Select(c => ((object)c, c)));
+            if (found is not null) return found.Value;
         }
         else
         {
-            foreach (var row in justifiedRows)
-            {
-                if (row.Items.Count > 0 && JustifiedRowsList.ContainerFromItem(row) is FrameworkElement container)
-                {
-                    var y = container.TransformToVisual(JustifiedRowsList).TransformPoint(new Point(0, 0)).Y;
-                    if (y + container.ActualHeight > 0 && y < JustifiedRowsList.ActualHeight) return (row.Items[0], y);
-                }
-            }
+            var found = FindAnchorInHost(JustifiedRowsList, justifiedRows.Where(r => r.Items.Count > 0).Select(r => ((object)r, r.Items[0])));
+            if (found is not null) return found.Value;
         }
         return (cards.FirstOrDefault(),0);
+    }
+    private static (MediaCard Card, double Inset)? FindAnchorInHost(ListViewBase host, IEnumerable<(object ContainerItem, MediaCard Card)> items)
+    {
+        (MediaCard Card, double Inset)? partialTopFallback = null;
+        foreach (var (containerItem, card) in items)
+        {
+            if (host.ContainerFromItem(containerItem) is not FrameworkElement container) continue;
+            var y = container.TransformToVisual(host).TransformPoint(new Point(0, 0)).Y;
+            if (y >= 0 && y < host.ActualHeight) return (card, y);
+            if (partialTopFallback is null && y + container.ActualHeight > 0 && y < host.ActualHeight)
+                partialTopFallback = (card, y);
+        }
+        return partialTopFallback;
     }
     private void SchedulePlaceSave()
     {

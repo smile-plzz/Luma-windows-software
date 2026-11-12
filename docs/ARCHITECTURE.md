@@ -55,8 +55,7 @@ WinUI 3 desktop user interface and window management:
 - `MainWindow.xaml` / `MainWindow.xaml.cs`: Top-level window with Windows 11 Mica backdrop, collapsible sidebar/header, toolbar, search, and status bar.
 - `MainWindow.Gallery.cs`: Dual virtualized media gallery (`MediaGrid` Uniform + `JustifiedRowsList` Adaptive/Moments), stack expansion, live viewport time HUD, and filter chips.
 - `JustifiedLayout.cs`: Balanced aspect-aware justified row packing with optional relevance sizing (`Moments`).
-- `MainWindow.Map.cs` & `Assets/Map/map.html`: Privacy-first Map View with one-time session consent, offline coordinate cluster fallback, and lazy zero-CDN OpenStreetMap slippy-tile viewer in `WebView2`.
-- `MainWindow.Preview.cs`: Full-screen/modal preview overlay (Spacebar), pan/zoom, offline-safe metadata sidebar, and quick triage (`F`/`T`/`M`/`Delete`).
+- `MainWindow.Map.cs` & `Assets/Map/map.html`: Privacy-first Map View with one-time session consent, offline coordinate cluster fallback, lazy zero-CDN OpenStreetMap slippy-tile viewer in `WebView2`, `catalogGeneration`-keyed SQLite/filter memoization, and direct external file handoff (`OpenMediaExternallyAsync`).
 - `MainWindow.Organization.cs`: Album/Smart Collection management, MRU quick-move destinations, conflict resolution, and transfer undo.
 - `MainWindow.Management.cs`: Source management dialog, storage & preview maintenance, diagnostics, and activity monitor.
 - `MainWindow.Exclusions.cs`: Reversible folder, source, and extension exclusions UI.

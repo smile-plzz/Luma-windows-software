@@ -211,3 +211,27 @@ Luma: Agent Swarm Handoff (v0.6.0 to v1.0.0)
 - `scripts/Smoke-Test.ps1 -Executable artifacts/Luma-win-x64/Luma.App.exe`: **exited with code 0** (`[1147.0s] Smoke test completed successfully`; `artifacts/qa/result.txt`, `final-experience.txt`, `management.txt`, `exclusions.txt` all green; also unified `SourcePaths.SanitizeWindowsFileNameStem` across Windows/Linux after CI `ubuntu-latest` check and re-verified on GitHub Actions `build.yml`).
 - Packaged `artifacts/Luma-v0.7.0-rc1-win-x64.zip` (`86,656,300` bytes, SHA-256 `5B6F9710100D7F17F13BEAD5BEB85B59C9979EB30A1348A99BA08B4CF48DBAEF`) and `artifacts/SHA256SUMS.txt`.
 - Tracked-file `\u2014` scan: **0 matches**.
+
+---
+
+## 2026-11-12T12:38:00+06:00 - External-Only Opening & Map Metadata Cache Hardening (D-13 / F-032)
+
+### Task Received
+- Confirm whether Luma extracts and caches metadata for Map View, harden Map metadata caching so populated libraries never repeatedly rescan unchanged files unless new or modified media arrive, and remove internal in-app photo viewing (`PreviewOverlay`) so every open action across Gallery and Map routes to the user's external default Windows software.
+
+### Changes Applied
+- **Map SQLite & Reader Caching (`src/Luma.Core/Organization.cs`, `src/Luma.Windows/WindowsMetadataReader.cs`):**
+  - Added covering lookup index `ix_metadata_lookup` on `metadata(source_id, relative_path, length, modified_ticks, meta_version)`.
+  - Hardened `WindowsMetadataReader.ReadAsync` exception handling so unreadable/exotic headers (aside from `FileNotFoundException` / `DirectoryNotFoundException` when a file/drive disappears) fall back to `MinimalGpsExtractor.ExtractFromFile` and record `MetaVersion = 2` cleanly so they are never repeatedly retried.
+- **In-Session Map Memoization & External-Only Opening (`src/Luma.App/MainWindow.Map.cs`, `MainWindow.xaml`, `MainWindow.xaml.cs`, `MainWindow.Gallery.cs`, `MainWindow.Management.cs`, `MainWindow.Organization.cs`, `MainWindow.Exclusions.cs`, `Assets/Map/map.html`, deleted `MainWindow.Preview.cs`):**
+  - Removed `PreviewOverlay`, `GallerySpaceKeyDown`, and `MainWindow.Preview.cs`; replaced all 7 `OpenPreviewFromMap` sites (clusters, pins, popups, filmstrip, place drawer) with `OpenMediaExternallyAsync` delegating through `Guard` + `ShellFiles.OpenInDefaultApp`, with in-overlay `MapNotice` (`Canvas.ZIndex="20"`) surfacing offline alerts clearly.
+  - Added `catalogGeneration` invalidation and in-memory memoization across Map markers/summary/places, Year/Source dropdowns, and connected backfill cleanliness (`mapBackfillCleanGeneration`), plus an explicit `"Map metadata cache is up to date..."` notification when manually clicking `Scan GPS`.
+- **Tests & Documentation (`tests/Luma.Tests/StabilizationTests.cs`, `docs/DECISIONS.md` `D-13`, `docs/assessment/FINDINGS.md` `F-032`, `README.md`, `CHANGELOG.md`, `docs/USER_GUIDE.md`, `docs/TROUBLESHOOTING.md`, `docs/KNOWN_LIMITS.md`, `docs/ACCESSIBILITY.md`, `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/TESTING_HANDOFF.md`, `releases/v0.7.0*.md`):**
+  - Restored `eae85a0` stabilization baselines before applying edits cleanly; added `MapMetadataCache_SkipsUnchangedFilesIncludingNonGpsAndScansOnlyNewOrChangedFiles` test verifying zero `IMetadataReader.ReadAsync` calls on unchanged GPS/non-GPS files and single-file scan on additions.
+
+### Verification (Run After Final Code Edit)
+- `dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release`: **130 passed, 0 failed, 0 skipped**.
+- `dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release`: **8 passed, 0 failed, 0 skipped**.
+- `dotnet publish src/Luma.App/Luma.App.csproj -c Release -r win-x64 -p:Platform=x64 -o artifacts/Luma-win-x64`: succeeded (`MainWindow.xbf` present, `Luma.App.exe` SHA-256 `CA3AE2798E583CE68522236288A8785F6578A35CDBE048CA9FBA9950708E5AD4`).
+- `scripts/Smoke-Test.ps1 -Executable artifacts/Luma-win-x64/Luma.App.exe`: **exited with code 0** (`[1111.0s] Smoke test completed successfully`).
+- Packaged `artifacts/Luma-v0.7.0-rc1-win-x64.zip` (`86,776,707` bytes, SHA-256 `66F56C2270E393136C955A9151B196B20E61BC661BC60543B81EB97F9D78463D`) and `artifacts/SHA256SUMS.txt`.

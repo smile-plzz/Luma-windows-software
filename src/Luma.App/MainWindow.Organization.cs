@@ -158,6 +158,7 @@ public sealed partial class MainWindow
             ImportFeedback("metadata", "Reading dates · Preparing", "Counting changed files. Saved media remains available.");
             var details = MetadataFeedback(source ?? "All sources", "Metadata");
             var count = await Task.Run(() => catalog.EnrichAsync(new WindowsMetadataReader(), source, scanCancellation.Token, details: details));
+            if (count > 0) InvalidateMapCache(resetBackfillCheck: true);
             Status.Text = $"Date reading complete · {count:N0} updates saved";
             Notify($"Metadata refreshed for {count:N0} changed files. Unsupported dates use modification time.");
         }
@@ -387,6 +388,7 @@ public sealed partial class MainWindow
             if (!catalogFailure)
             {
                 await Task.Run(() => catalog.ScanAsync(targetId, targetRoot));
+                InvalidateMapCache(resetBackfillCheck: true);
                 await LoadSources(); await LoadAlbums(); await Refresh();
             }
             var errors = reports.Where(r => r.Error is not null).ToArray();
@@ -495,6 +497,7 @@ public sealed partial class MainWindow
             }
         }
         try { await File.WriteAllTextAsync(log, JsonSerializer.Serialize(remaining, new JsonSerializerOptions { WriteIndented = true })); } catch { }
+        InvalidateMapCache(resetBackfillCheck: false);
         await LoadSources(); await LoadAlbums(); await Refresh();
         var undoNote = $"Reversed {undone:N0} of {movedItems.Length:N0} moved file(s) with saved tags and albums preserved.";
         if (skippedOffline > 0) undoNote += $" {skippedOffline:N0} skipped because destination drive is disconnected.";

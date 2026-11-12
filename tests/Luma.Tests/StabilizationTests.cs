@@ -406,4 +406,96 @@ public sealed class StabilizationTests : IDisposable
         var tags = await catalog.GetTagsWithCountsAsync();
         Assert.Contains(tags, t => t.Tag == "Family Trip" && t.Count == 1);
     }
+
+    private sealed class CountingMetadataReader : IMetadataReader
+    {
+        private readonly Dictionary<string, MediaMetadata> map;
+        public List<string> ReadPaths { get; } = [];
+
+        public CountingMetadataReader(Dictionary<string, MediaMetadata> map) => this.map = map;
+
+        public Task<MediaMetadata> ReadAsync(string path, string kind, CancellationToken ct)
+        {
+            var name = Path.GetFileName(path);
+            ReadPaths.Add(name);
+            return Task.FromResult(map.GetValueOrDefault(name, new MediaMetadata()));
+        }
+    }
+
+    [Fact]
+    public async Task MapMetadataCache_SkipsUnchangedFilesIncludingNonGpsAndScansOnlyNewOrChangedFiles()
+    {
+        var sourceDir = Path.Combine(Path.GetTempPath(), "Luma-mapcache-src-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(sourceDir);
+        try
+        {
+            var photoGps = Path.Combine(sourceDir, "gps.jpg");
+            var photoNoGps = Path.Combine(sourceDir, "nogps.jpg");
+            await File.WriteAllBytesAsync(photoGps, [0xFF, 0xD8, 0xFF, 0xE0, 0x00]);
+            await File.WriteAllBytesAsync(photoNoGps, [0xFF, 0xD8, 0xFF, 0xE0, 0x01]);
+
+            var catalog = new MediaCache(DbPath, new FixedResolver("src-map", sourceDir));
+            await catalog.InitializeAsync();
+            Assert.Equal(2, await catalog.ScanAsync("src-map", sourceDir));
+            Assert.Equal(2, await catalog.CountPendingMetadataBackfillAsync("src-map", ["src-map"]));
+
+            var reader1 = new CountingMetadataReader(new()
+            {
+                ["gps.jpg"] = new(Latitude: 23.8103, Longitude: 90.4125, LocationName: "Dhaka, BD", LocationOrigin: "exif", MetaVersion: MediaCache.CurrentMetadataVersion),
+                ["nogps.jpg"] = new(Latitude: null, Longitude: null, LocationName: null, LocationOrigin: null, MetaVersion: MediaCache.CurrentMetadataVersion)
+            });
+
+            Assert.Equal(2, await catalog.EnrichAsync(reader1, "src-map"));
+            Assert.Equal(2, reader1.ReadPaths.Count);
+            Assert.Equal(0, await catalog.CountPendingMetadataBackfillAsync("src-map", ["src-map"]));
+
+            // Second scan + backfill check with unchanged files must never re-read originals
+            Assert.Equal(2, await catalog.ScanAsync("src-map", sourceDir));
+            Assert.Equal(0, await catalog.CountPendingMetadataBackfillAsync("src-map", ["src-map"]));
+            var reader2 = new CountingMetadataReader(new());
+            Assert.Equal(0, await catalog.EnrichAsync(reader2, "src-map"));
+            Assert.Empty(reader2.ReadPaths);
+
+            // Add 1 new file: only that new file is pending & read; existing map markers stay intact
+            var photoNew = Path.Combine(sourceDir, "newshot.jpg");
+            await File.WriteAllBytesAsync(photoNew, [0xFF, 0xD8, 0xFF, 0xE0, 0x02, 0x03]);
+            Assert.Equal(3, await catalog.ScanAsync("src-map", sourceDir));
+            Assert.Equal(1, await catalog.CountPendingMetadataBackfillAsync("src-map", ["src-map"]));
+
+            var reader3 = new CountingMetadataReader(new()
+            {
+                ["newshot.jpg"] = new(Latitude: 22.3569, Longitude: 91.7832, LocationName: "Chattogram, BD", LocationOrigin: "exif", MetaVersion: MediaCache.CurrentMetadataVersion)
+            });
+            Assert.Equal(1, await catalog.EnrichAsync(reader3, "src-map"));
+            Assert.Equal(["newshot.jpg"], reader3.ReadPaths);
+            Assert.Equal(0, await catalog.CountPendingMetadataBackfillAsync("src-map", ["src-map"]));
+
+            var markers = await catalog.QueryGeotaggedMarkersAsync(new LibraryQuery(SourceId: "src-map"));
+            Assert.Equal(2, markers.Count);
+            Assert.Contains(markers, m => m.Name == "gps.jpg");
+            Assert.Contains(markers, m => m.Name == "newshot.jpg");
+
+            // Manual catalog pin on an already-cached non-GPS file keeps its pin & meta_version without triggering rescan
+            var unpinned = await catalog.GetItemAsync("src-map", "nogps.jpg");
+            Assert.NotNull(unpinned);
+            await catalog.AssignLocationAsync([unpinned.Media], 40.7128, -74.0060, "New York, US");
+            Assert.Equal(0, await catalog.CountPendingMetadataBackfillAsync("src-map", ["src-map"]));
+            var reader4 = new CountingMetadataReader(new());
+            Assert.Equal(0, await catalog.EnrichAsync(reader4, "src-map"));
+            Assert.Empty(reader4.ReadPaths);
+
+            var markersAfterPin = await catalog.QueryGeotaggedMarkersAsync(new LibraryQuery(SourceId: "src-map"));
+            Assert.Equal(3, markersAfterPin.Count);
+            Assert.Contains(markersAfterPin, m => m.Name == "nogps.jpg" && m.LocationOrigin == "manual");
+        }
+        finally
+        {
+            try { Directory.Delete(sourceDir, true); } catch { }
+        }
+    }
+
+    private sealed class FixedResolver(string id, string root) : ISourceResolver
+    {
+        public string? ResolveRoot(string sourceId) => sourceId == id ? root : null;
+    }
 }
