@@ -63,3 +63,7 @@ dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release
 dotnet publish src/Luma.App/Luma.App.csproj -c Release -r win-x64 -p:Platform=x64 -o artifacts/Luma-win-x64
 ./scripts/Smoke-Test.ps1 -Executable artifacts/Luma-win-x64/Luma.App.exe
 ```
+
+Core tests also run on Linux. GitHub Actions builds the app, runs Windows integration tests, verifies its native window and uploads build/test evidence. See the specific workflow result before treating a binary as validated.
+
+[Phase 2 guide](docs/PHASE_2.md) · [Gallery redesign plan](docs/GALLERY_REDESIGN.md) · [Roadmap](docs/ROADMAP.md) · [Phase 1 scope and limits](docs/PHASE_1.md) · [External-drive design](docs/EXTERNAL_DRIVES.md) · [QA](docs/QA.md)

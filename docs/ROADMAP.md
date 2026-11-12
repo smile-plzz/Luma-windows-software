@@ -4,33 +4,18 @@ Status: the portable gallery development milestone is closed and merged into `ma
 
 | Milestone | Scope | Status |
 | --- | --- | --- |
-| Phase 1: native library | Source identity, read-only scanning, thumbnails, search/tags/favorites, native file actions | Merged |
-| Phase 2: offline browsing | Bulk preparation, cancellation/resume, coverage, cached folders, cache clearing | Merged |
-| Phase 3: gallery redesign | Continuous gallery, customization/sorting, timeline, albums and Windows file control | Merged; automated gates passed; portable Windows shipment available |
-| Final v0.6.0 refinement | Saved views, import progress, tooltips, outcomes and dialog consistency | Complete; merged and verified |
-| Real-life testing | Personal media, physical drives, Windows file interactions and daily usability | Current stage; user feedback pending |
-| Future delivery work | External-move reconciliation, measured full-library responsiveness, signing/installer | Deferred; prioritize from real-world feedback |
-
-## Current handoff
-
-Use [TESTING_HANDOFF.md](TESTING_HANDOFF.md) for the exact tested commit, download, upgrade instructions, known limits and feedback format. [GALLERY_BUILD.md](GALLERY_BUILD.md) describes current behavior; [QA.md](QA.md) separates automated evidence from manual acceptance.
-
-Keep the shipped code stable while testing. Prioritize reported data-integrity or startup failures first, then recurring browsing/performance problems, then visual/usability refinements. A future fix should reproduce the report, receive appropriate regression checks, and identify its own tested build before shipment.
-
-The app opens originals in default applications. Cloud accounts, an embedded player/editor, automatic original-file rearrangement and full-original backup are outside this milestone. Preview pinning needs a separate capacity design. Signing and an installer are not required to begin testing the unsigned portable build.
-
-## Resumable indexing and memory browsing
-
-Implemented persistent indexing checkpoints with resume/restart/report controls and atomic catalog publication, plus On this day capture-date browsing with date selection and offline previews. All automated checks passed (58 core cases per OS, four Windows integration cases and native desktop smoke). The downloadable shipment is tracked in TESTING_HANDOFF.md. Smart collections, pinned previews and installer/update notifications remain separate future work.
-
-## Library management refinement
-
-User-confirmed real-machine functionality led to a discoverability-focused follow-up: Manage sources, explicit refresh scopes, Storage & previews, safe rebuild/repair, unused-preview cleanup and Activity. Browsing-position restoration ships in v0.6.0. Catalog backup/restore remains deferred; it is not included.
-
-## Exclusions and packaging update
+| Phase 1 — native library | Source identity, read-only scanning, thumbnails, search/tags/favorites, native file actions | Merged; Windows/Linux core, Windows integration and native UI smoke passed; real-device acceptance remains |
+| Phase 2 — offline browsing | Bulk preparation, cancellation/resume, non-evicting preparation, coverage/usage, cached folders, cache clearing | Implemented on the Phase 2 branch; exact CI evidence is recorded in QA and the pull request |
+| Phase 3 — gallery redesign | Apple-inspired native shell, continuous gallery, customization/sorting, meaningful timeline, albums and Windows file control | Approved product direction; [implementation plan](GALLERY_REDESIGN.md) defines five ordered steps and acceptance criteria; not yet implemented |
+| Phase 4 — scale and delivery | Measured 100k-item workloads, watcher/reconciliation strategy, responsive native file operations, signing/installer | Proposed; requires benchmarks and real-PC acceptance before release claims |
 
 Reversible folder, source and global extension rules now filter browsing and future scans. Use Settings or Refresh → Manage exclusions to restore them; Reset does not remove rules. Originals and saved organization are retained. Changing rules invalidates affected paused traversal checkpoints, not the published catalog. See [usage and limits](EXCLUSIONS.md) and [executable branding](BRANDING.md).
 
-## Final experience refinement
+1. Review the Phase 2 CI evidence and download its complete Windows artifact.
+2. Run the removable-drive, limited-capacity, cancellation/restart and cache-clearing acceptance sequence in [QA](QA.md) using disposable fixtures.
+3. Merge the Phase 2 pull request once its checks pass and acceptance is satisfactory.
+4. Begin Phase 3 with the continuous gallery and simplified shell, then view customization, metadata/timeline, file organization and stabilization, in the order defined in [the gallery redesign plan](GALLERY_REDESIGN.md).
+
+The latest user testing changes the priority: a comfortable gallery and continuous browsing come before further expansion of the existing maintenance-heavy screen. Default to month-grouped chronological browsing, while preserving an optional plain grid and native Windows file-management conventions.
 
 Saved browsing position, explicit discovery/date-reading progress, accessible action hints and theme-matched dialogs complete the planned build. See [behavior and limits](FINAL_EXPERIENCE.md). Verified shipment evidence is recorded in the testing handoff.
