@@ -1,0 +1,10 @@
+{
+  "Count": 200000,
+  "FirstBatchMs": 7.5814,
+  "PreviousCaptureSortOnlyMs": 88.6332,
+  "NextBatchMs": 1.2856,
+  "MonthIndexMs": 530.8516,
+  "Environment": "Ubuntu 24.04.5 LTS",
+  "Processors": 4,
+  "Scope": "SQLite metadata/query only; not image decoding or USB hardware"
+}

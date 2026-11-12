@@ -1,5 +1,7 @@
 # Phase 1: usable native media library
 
+Historical milestone record. Both phases and the subsequent gallery redesign are merged. For current behavior use [GALLERY_BUILD.md](GALLERY_BUILD.md); for the shipped download and real-life testing use [TESTING_HANDOFF.md](TESTING_HANDOFF.md). Paging and deferred-feature descriptions below refer to this historical phase.
+
 ## Acceptance scope
 
 Phase 1 delivers a Windows desktop app that can index existing folders/drives, browse photos and videos as thumbnails, preserve a useful offline catalog, and perform familiar file actions. It is local-first, uses Windows default apps to open originals, and has no login, media player or cloud backend.

@@ -1,0 +1,10 @@
+{
+  "Count": 200000,
+  "FirstBatchMs": 53.0551,
+  "PreviousCaptureSortOnlyMs": 112.8326,
+  "NextBatchMs": 1.6686,
+  "MonthIndexMs": 506.3086,
+  "Environment": "Microsoft Windows 10.0.26100",
+  "Processors": 4,
+  "Scope": "SQLite metadata/query only; not image decoding or USB hardware"
+}

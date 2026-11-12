@@ -1,5 +1,29 @@
 <Application x:Class="Luma.App.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Application.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries>
     <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
-  </ResourceDictionary.MergedDictionaries></ResourceDictionary></Application.Resources>
+  </ResourceDictionary.MergedDictionaries>
+    <ResourceDictionary.ThemeDictionaries>
+     <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="LumaCanvas" Color="#FAF9F6"/>
+      <SolidColorBrush x:Key="LumaSidebar" Color="#F2F0EC"/>
+      <SolidColorBrush x:Key="LumaControl" Color="#EAE7E1"/>
+      <SolidColorBrush x:Key="LumaCardSurface" Color="#F4F2EE"/>
+      <SolidColorBrush x:Key="LumaCardBorder" Color="#14000000"/>
+     </ResourceDictionary>
+     <ResourceDictionary x:Key="Default">
+      <SolidColorBrush x:Key="LumaCanvas" Color="#171719"/>
+      <SolidColorBrush x:Key="LumaSidebar" Color="#202024"/>
+      <SolidColorBrush x:Key="LumaControl" Color="#2A2A30"/>
+      <SolidColorBrush x:Key="LumaCardSurface" Color="#222227"/>
+      <SolidColorBrush x:Key="LumaCardBorder" Color="#1CFFFFFF"/>
+     </ResourceDictionary>
+     <ResourceDictionary x:Key="HighContrast">
+      <SolidColorBrush x:Key="LumaCanvas" Color="{ThemeResource SystemColorWindowColor}"/>
+      <SolidColorBrush x:Key="LumaSidebar" Color="{ThemeResource SystemColorWindowColor}"/>
+      <SolidColorBrush x:Key="LumaControl" Color="{ThemeResource SystemColorButtonFaceColor}"/>
+      <SolidColorBrush x:Key="LumaCardSurface" Color="{ThemeResource SystemColorButtonFaceColor}"/>
+      <SolidColorBrush x:Key="LumaCardBorder" Color="{ThemeResource SystemColorWindowTextColor}"/>
+     </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary></Application.Resources>
 </Application>

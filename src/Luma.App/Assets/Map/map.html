@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Luma Photo Map</title>
+<style>
+  :root {
+    --bg: #141518;
+    --surface: rgba(24, 25, 30, 0.86);
+    --surface-solid: #1e2026;
+    --control: rgba(255, 255, 255, 0.08);
+    --control-hover: rgba(255, 255, 255, 0.16);
+    --text: #f4f4f5;
+    --muted: #a1a1aa;
+    --border: rgba(255, 255, 255, 0.12);
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --fav: #e09124;
+    --video: #10b981;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+  body.theme-light {
+    --bg: #F6F5F1;
+    --surface: rgba(250, 249, 246, 0.90);
+    --surface-solid: #FAF9F6;
+    --control: rgba(0, 0, 0, 0.055);
+    --control-hover: rgba(0, 0, 0, 0.11);
+    --text: #18181b;
+    --muted: #52525b;
+    --border: rgba(0, 0, 0, 0.10);
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
+  }
+  * { box-sizing: border-box; user-select: none; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  #map { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: grab; background: var(--bg); }
+  #map.dragging { cursor: grabbing; }
+  #map.pin-mode { cursor: crosshair; }
+  #tiles, #heatCanvas, #trailSvg, #markers { position: absolute; inset: 0; }
+  #tiles, #heatCanvas, #trailSvg { pointer-events: none; }
+  #markers { pointer-events: auto; }
+
+  .tile { position: absolute; width: 256px; height: 256px; image-rendering: auto; pointer-events: none; transition: opacity 0.16s ease; }
+  #map.style-minimal-light .tile { filter: grayscale(88%) brightness(1.04) contrast(0.90); }
+  #map.style-minimal-dark .tile { filter: invert(92%) hue-rotate(180deg) brightness(0.90) contrast(0.96) grayscale(42%); }
+  #map.style-mono .tile { filter: grayscale(100%) contrast(1.06); }
+  #map.style-classic .tile { filter: none; }
+
+  .cluster {
+    position: absolute; transform: translate(-50%, -50%);
+    min-width: 32px; height: 32px; padding: 0 10px;
+    border-radius: 16px; background: rgba(37, 99, 235, 0.90); color: #fff;
+    border: 2px solid rgba(255, 255, 255, 0.92); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.32);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; cursor: pointer; transition: transform 0.12s ease;
+  }
+  .cluster.fav { background: rgba(224, 145, 36, 0.92); }
+  .cluster:hover { transform: translate(-50%, -50%) scale(1.12); z-index: 25; }
+
+  .heat-spot {
+    position: absolute; transform: translate(-50%, -50%);
+    min-width: 14px; height: 14px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92); border: 2px solid rgba(245, 158, 11, 0.95);
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.55); cursor: pointer;
+    transition: transform 0.12s ease;
+  }
+  .heat-spot.badge {
+    height: auto; padding: 3px 8px; font-size: 11px; font-weight: 600; color: #fff;
+    background: rgba(20, 22, 28, 0.80); border: 1px solid rgba(255, 255, 255, 0.32);
+    backdrop-filter: blur(8px); white-space: nowrap;
+  }
+  .heat-spot:hover { transform: translate(-50%, -50%) scale(1.12); z-index: 28; }
+
+  .place-pill {
+    position: absolute; transform: translate(-50%, -50%);
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 10px; border-radius: 999px;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(12px);
+    font-size: 11.5px; font-weight: 600; white-space: nowrap; cursor: pointer;
+    transition: transform 0.12s ease, border-color 0.12s ease;
+  }
+  .place-pill:hover { transform: translate(-50%, -50%) scale(1.06); z-index: 32; border-color: var(--accent); }
+  .place-pill.fav { border-color: rgba(224, 145, 36, 0.55); }
+  .place-count {
+    font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 999px;
+    background: var(--accent); color: #fff;
+  }
+  .place-pill.fav .place-count { background: var(--fav); }
+
+  .pin {
+    position: absolute; transform: translate(-50%, -100%);
+    width: 22px; height: 22px; border-radius: 11px 11px 11px 2px;
+    transform-origin: center bottom;
+    background: var(--accent); border: 2px solid #fff;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    font-size: 10px; color: #fff; transition: transform 0.1s ease;
+  }
+  .pin.video { background: var(--video); }
+  .pin.fav { background: var(--fav); }
+  .pin.manual { border-style: dashed; }
+  .pin.active { transform: translate(-50%, -100%) scale(1.28); z-index: 40; box-shadow: 0 0 0 4px rgba(59,130,246,0.35); }
+  .pin:hover { z-index: 35; transform: translate(-50%, -100%) scale(1.15); }
+
+  .toolbar {
+    position: absolute; top: 12px; left: 12px; right: 12px;
+    display: flex; justify-content: space-between; align-items: center; pointer-events: none; z-index: 50;
+  }
+  .pill-group {
+    display: flex; align-items: center; gap: 4px; pointer-events: auto;
+    background: var(--surface); backdrop-filter: blur(14px);
+    padding: 4px; border-radius: 11px; border: 1px solid var(--border); box-shadow: var(--shadow);
+  }
+  button.btn, select.btn {
+    background: transparent; color: var(--text); border: none; border-radius: 7px;
+    padding: 5px 9px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: inherit;
+  }
+  button.btn:hover, select.btn:hover { background: var(--control-hover); }
+  button.btn.primary { background: var(--accent); color: #fff; padding: 6px 12px; }
+  button.btn.primary:hover { background: var(--accent-hover); }
+  select.btn { background: var(--control); }
+  select.btn option { background: var(--surface-solid); color: var(--text); }
+
+  #pinHint {
+    position: absolute; top: 58px; left: 50%; transform: translateX(-50%);
+    display: none; z-index: 60; pointer-events: none;
+    background: rgba(37, 99, 235, 0.95); color: #fff; padding: 6px 14px;
+    border-radius: 999px; font-size: 12px; font-weight: 600; box-shadow: var(--shadow);
+  }
+
+  #popup {
+    position: absolute; display: none; width: 274px; z-index: 80;
+    background: var(--surface); backdrop-filter: blur(16px);
+    border: 1px solid var(--border); border-radius: 14px; padding: 10px;
+    box-shadow: var(--shadow); pointer-events: auto;
+  }
+  #popupThumbWrap { position: relative; width: 100%; height: 150px; border-radius: 10px; overflow: hidden; background: rgba(128,128,128,0.14); margin-bottom: 8px; display: flex; align-items: center; justify-content: center; }
+  #popupThumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #popupThumbFallback { position: absolute; font-size: 11px; color: var(--muted); text-align: center; padding: 8px; display: none; }
+  #popupName { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #popupMeta { font-size: 11px; color: var(--muted); margin: 4px 0 10px; line-height: 1.45; white-space: pre-line; }
+  .popup-actions { display: flex; gap: 6px; }
+
+  #heatLegend {
+    position: absolute; bottom: 12px; left: 12px; z-index: 40;
+    display: none; align-items: center; gap: 8px;
+    background: var(--surface); backdrop-filter: blur(12px);
+    color: var(--muted); border: 1px solid var(--border);
+    font-size: 11px; padding: 5px 10px; border-radius: 9px; box-shadow: var(--shadow);
+  }
+  .heat-bar {
+    width: 78px; height: 7px; border-radius: 999px;
+    background: linear-gradient(90deg, rgba(56,189,248,0.75), rgba(16,185,129,0.88), rgba(245,158,11,0.94), rgba(239,68,68,0.98));
+  }
+
+  .attribution {
+    position: absolute; bottom: 10px; right: 12px; z-index: 40;
+    background: var(--surface); color: var(--muted); border: 1px solid var(--border);
+    font-size: 10px; padding: 3px 8px; border-radius: 6px;
+  }
+</style>
+</head>
+<body>
+<div id="map" class="style-minimal-dark">
+  <div id="tiles"></div>
+  <canvas id="heatCanvas"></canvas>
+  <svg id="trailSvg"></svg>
+  <div id="markers"></div>
+  <div class="toolbar">
+    <div class="pill-group">
+      <button class="btn" id="zoomIn" title="Zoom in">+</button>
+      <button class="btn" id="zoomOut" title="Zoom out">-</button>
+      <button class="btn" id="fitAll" title="Fit all mapped items">Fit</button>
+      <select class="btn" id="styleSelect" title="Map appearance">
+        <option value="minimal-dark">Minimal Dark</option>
+        <option value="minimal-light">Minimal Light</option>
+        <option value="mono">Mono Slate</option>
+        <option value="classic">OSM Streets</option>
+      </select>
+      <span id="statusBadge" style="font-size:11.5px;padding:3px 7px;color:var(--muted);">0 in view</span>
+    </div>
+    <div class="pill-group">
+      <button class="btn primary" id="filterBoundsBtn">Show view in gallery</button>
+    </div>
+  </div>
+  <div id="pinHint">Click anywhere on the map to assign catalog coordinates</div>
+  <div id="popup">
+    <div id="popupThumbWrap">
+      <img id="popupThumb" alt="Preview" />
+      <div id="popupThumbFallback">Preview not cached yet</div>
+    </div>
+    <div id="popupName"></div>
+    <div id="popupMeta"></div>
+    <div class="popup-actions">
+      <button class="btn primary" id="popupOpenBtn" style="flex:1">Open in default app</button>
+      <button class="btn" id="popupFilterBtn" style="display:none">Filter spot</button>
+      <button class="btn" id="popupCloseBtn">✕</button>
+    </div>
+  </div>
+  <div id="heatLegend">
+    <span>Less</span>
+    <span class="heat-bar"></span>
+    <span>More photos</span>
+  </div>
+  <div class="attribution">&copy; OpenStreetMap contributors</div>
+</div>
+<script>
+(function () {
+  const TILE_SIZE = 256;
+  const MIN_ZOOM = 2;
+  const MAX_ZOOM = 18;
+  const mapEl = document.getElementById('map');
+  const tilesEl = document.getElementById('tiles');
+  const heatCanvas = document.getElementById('heatCanvas');
+  const heatCtx = heatCanvas.getContext('2d');
+  const heatLegend = document.getElementById('heatLegend');
+  const trailSvg = document.getElementById('trailSvg');
+  const markersEl = document.getElementById('markers');
+  const statusEl = document.getElementById('statusBadge');
+  const styleSelect = document.getElementById('styleSelect');
+  const pinHintEl = document.getElementById('pinHint');
+  const popupEl = document.getElementById('popup');
+  const popupThumbEl = document.getElementById('popupThumb');
+  const popupFallbackEl = document.getElementById('popupThumbFallback');
+  const popupNameEl = document.getElementById('popupName');
+  const popupMetaEl = document.getElementById('popupMeta');
+  const popupFilterBtn = document.getElementById('popupFilterBtn');
+
+  let state = {
+    centerLat: 20, centerLon: 0, zoom: 2,
+    markers: [], places: [], viewMode: 'heat', pinMode: false,
+    activeItem: null, activeClusterBounds: null, highlightedKey: null, styleExplicit: false
+  };
+  const tileCache = new Map();
+  let viewportTimer = null;
+  let lastHeatCanvasW = 0, lastHeatCanvasH = 0;
+
+  // Build 256-entry thermal palette LUT once for crisp O(W*H) heatmap coloring
+  const heatPalette = new Uint8ClampedArray(256 * 4);
+  (function buildPalette() {
+    const stops = [
+      { t: 0.00, r: 56,  g: 189, b: 248, a: 0 },
+      { t: 0.18, r: 56,  g: 189, b: 248, a: 145 },
+      { t: 0.44, r: 16,  g: 185, b: 129, a: 190 },
+      { t: 0.72, r: 245, g: 158, b: 11,  a: 220 },
+      { t: 1.00, r: 239, g: 68,  b: 68,  a: 242 }
+    ];
+    for (let i = 0; i < 256; i++) {
+      const t = i / 255;
+      let s0 = stops[0], s1 = stops[stops.length - 1];
+      for (let k = 0; k < stops.length - 1; k++) {
+        if (t >= stops[k].t && t <= stops[k + 1].t) { s0 = stops[k]; s1 = stops[k + 1]; break; }
+      }
+      const span = Math.max(0.0001, s1.t - s0.t);
+      const f = (t - s0.t) / span;
+      heatPalette[i * 4]     = Math.round(s0.r + (s1.r - s0.r) * f);
+      heatPalette[i * 4 + 1] = Math.round(s0.g + (s1.g - s0.g) * f);
+      heatPalette[i * 4 + 2] = Math.round(s0.b + (s1.b - s0.b) * f);
+      heatPalette[i * 4 + 3] = Math.round(s0.a + (s1.a - s0.a) * f);
+    }
+  })();
+
+  const stampCache = new Map();
+  function getAlphaStamp(radius) {
+    let s = stampCache.get(radius);
+    if (s) return s;
+    const c = document.createElement('canvas');
+    c.width = c.height = radius * 2;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createRadialGradient(radius, radius, 0, radius, radius, radius);
+    grad.addColorStop(0.0, 'rgba(0,0,0,1)');
+    grad.addColorStop(0.45, 'rgba(0,0,0,0.48)');
+    grad.addColorStop(1.0, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(radius, radius, radius, 0, Math.PI * 2);
+    ctx.fill();
+    stampCache.set(radius, c);
+    return c;
+  }
+
+  function markerKey(m) { return `${m.sourceId}\n${m.relativePath}`; }
+  function lonToWorldX(lon, z) { return ((lon + 180) / 360) * TILE_SIZE * Math.pow(2, z); }
+  function latToWorldY(lat, z) {
+    const rad = Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 180;
+    return (0.5 - Math.log((1 + Math.sin(rad)) / (1 - Math.sin(rad))) / (4 * Math.PI)) * TILE_SIZE * Math.pow(2, z);
+  }
+  function worldXToLon(wx, z) { return (wx / (TILE_SIZE * Math.pow(2, z))) * 360 - 180; }
+  function worldYToLat(wy, z) {
+    const n = Math.PI - (2 * Math.PI * wy) / (TILE_SIZE * Math.pow(2, z));
+    return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+  }
+  function formatCoord(lat, lon) {
+    return `${Math.abs(lat).toFixed(4)} ${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)} ${lon >= 0 ? 'E' : 'W'}`;
+  }
+
+  function applyStyle(styleName, notifyHost) {
+    if (!styleName) return;
+    mapEl.classList.remove('style-minimal-light', 'style-minimal-dark', 'style-mono', 'style-classic');
+    mapEl.classList.add('style-' + styleName);
+    styleSelect.value = styleName;
+    if (notifyHost && window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage({ type: 'styleChanged', style: styleName });
+    }
+  }
+
+  function applyTheme(theme) {
+    if (theme === 'light') {
+      document.body.classList.add('theme-light');
+      if (!state.styleExplicit) applyStyle('minimal-light', false);
+    } else {
+      document.body.classList.remove('theme-light');
+      if (!state.styleExplicit) applyStyle('minimal-dark', false);
+    }
+  }
+
+  function getBounds(w, h, cx, cy, z) {
+    return {
+      minLon: Math.max(-180, worldXToLon(cx - w / 2, z)),
+      maxLon: Math.min(180, worldXToLon(cx + w / 2, z)),
+      maxLat: Math.min(90, worldYToLat(cy - h / 2, z)),
+      minLat: Math.max(-90, worldYToLat(cy + h / 2, z))
+    };
+  }
+
+  function scheduleViewportSync(w, h, cx, cy, z, visibleMarkers) {
+    clearTimeout(viewportTimer);
+    viewportTimer = setTimeout(() => {
+      if (!window.chrome || !window.chrome.webview) return;
+      const b = getBounds(w, h, cx, cy, z);
+      const visibleKeys = visibleMarkers.slice(0, 32).map(m => ({ sourceId: m.sourceId, relativePath: m.relativePath }));
+      window.chrome.webview.postMessage({
+        type: 'viewportChanged',
+        centerLat: state.centerLat, centerLon: state.centerLon, zoom: state.zoom,
+        minLat: b.minLat, maxLat: b.maxLat, minLon: b.minLon, maxLon: b.maxLon,
+        visibleCount: visibleMarkers.length,
+        visibleKeys
+      });
+    }, 140);
+  }
+
+  function renderHeatmap(w, h, originX, originY, z, visibleMarkers) {
+    if (lastHeatCanvasW !== w || lastHeatCanvasH !== h) {
+      heatCanvas.width = w;
+      heatCanvas.height = h;
+      lastHeatCanvasW = w;
+      lastHeatCanvasH = h;
+    }
+    heatCtx.clearRect(0, 0, w, h);
+    if (state.viewMode !== 'heat' || visibleMarkers.length === 0) {
+      heatLegend.style.display = state.viewMode === 'heat' ? 'flex' : 'none';
+      return [];
+    }
+    heatLegend.style.display = 'flex';
+
+    // Aggregate into ~16px screen bins first so 25k+ markers stamp in ~2ms
+    const binPx = 14;
+    const bins = new Map();
+    let maxCount = 1;
+    for (const m of visibleMarkers) {
+      const px = lonToWorldX(m.longitude, z) - originX;
+      const py = latToWorldY(m.latitude, z) - originY;
+      const key = `${Math.floor(px / binPx)}_${Math.floor(py / binPx)}`;
+      let b = bins.get(key);
+      if (!b) { b = { sumX: 0, sumY: 0, count: 0, favCount: 0, rep: m, items: [] }; bins.set(key, b); }
+      b.sumX += px;
+      b.sumY += py;
+      b.count++;
+      if (m.favorite) b.favCount++;
+      b.items.push(m);
+      if (b.count > maxCount) maxCount = b.count;
+    }
+
+    const radius = Math.round(Math.max(20, Math.min(44, 18 + (z - 2) * 2.1)));
+    const stamp = getAlphaStamp(radius);
+    const logMax = Math.log2(maxCount + 1);
+
+    for (const b of bins.values()) {
+      const cx = b.sumX / b.count;
+      const cy = b.sumY / b.count;
+      const intensity = Math.min(0.92, Math.max(0.24, (Math.log2(b.count + 1) / Math.max(1, logMax)) * 0.72 + (b.favCount > 0 ? 0.14 : 0)));
+      heatCtx.globalAlpha = intensity;
+      heatCtx.drawImage(stamp, cx - radius, cy - radius);
+    }
+    heatCtx.globalAlpha = 1;
+
+    const img = heatCtx.getImageData(0, 0, w, h);
+    const data = img.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3];
+      if (alpha > 4) {
+        const idx = alpha * 4;
+        data[i] = heatPalette[idx];
+        data[i + 1] = heatPalette[idx + 1];
+        data[i + 2] = heatPalette[idx + 2];
+        data[i + 3] = heatPalette[idx + 3];
+      } else {
+        data[i + 3] = 0;
+      }
+    }
+    heatCtx.putImageData(img, 0, 0);
+
+    // Return hotspot anchor clusters (~48px cells) for crisp interactive dots & count pills
+    const spotPx = z >= 14 ? 22 : 48;
+    const spots = new Map();
+    for (const m of visibleMarkers) {
+      const px = lonToWorldX(m.longitude, z) - originX;
+      const py = latToWorldY(m.latitude, z) - originY;
+      const key = `${Math.floor(px / spotPx)}_${Math.floor(py / spotPx)}`;
+      let s = spots.get(key);
+      if (!s) { s = { items: [], sumLat: 0, sumLon: 0, fav: false, names: new Map() }; spots.set(key, s); }
+      s.items.push(m);
+      s.sumLat += m.latitude;
+      s.sumLon += m.longitude;
+      if (m.favorite) s.fav = true;
+      if (m.locationName) s.names.set(m.locationName, (s.names.get(m.locationName) || 0) + 1);
+    }
+    return [...spots.values()];
+  }
+
+  function render() {
+    const w = mapEl.clientWidth || 800;
+    const h = mapEl.clientHeight || 600;
+    const z = state.zoom;
+    const scaleCount = Math.pow(2, z);
+    const cx = lonToWorldX(state.centerLon, z);
+    const cy = latToWorldY(state.centerLat, z);
+    const originX = cx - w / 2;
+    const originY = cy - h / 2;
+
+    const minTileX = Math.floor(originX / TILE_SIZE);
+    const maxTileX = Math.floor((originX + w) / TILE_SIZE);
+    const minTileY = Math.max(0, Math.floor(originY / TILE_SIZE));
+    const maxTileY = Math.min(scaleCount - 1, Math.floor((originY + h) / TILE_SIZE));
+
+    const needed = new Set();
+    for (let tx = minTileX; tx <= maxTileX; tx++) {
+      const wrappedX = ((tx % scaleCount) + scaleCount) % scaleCount;
+      for (let ty = minTileY; ty <= maxTileY; ty++) {
+        const id = `${z}/${tx}/${ty}`;
+        needed.add(id);
+        let img = tileCache.get(id);
+        if (!img) {
+          img = document.createElement('img');
+          img.className = 'tile';
+          img.draggable = false;
+          img.src = `https://tile.openstreetmap.org/${z}/${wrappedX}/${ty}.png`;
+          tileCache.set(id, img);
+          tilesEl.appendChild(img);
+        }
+        img.style.left = `${Math.round(tx * TILE_SIZE - originX)}px`;
+        img.style.top = `${Math.round(ty * TILE_SIZE - originY)}px`;
+      }
+    }
+    for (const [id, img] of tileCache.entries()) {
+      if (!needed.has(id)) { img.remove(); tileCache.delete(id); }
+    }
+
+    const visibleMarkers = [];
+    for (const m of state.markers) {
+      const px = lonToWorldX(m.longitude, z) - originX;
+      const py = latToWorldY(m.latitude, z) - originY;
+      if (px >= -48 && px <= w + 48 && py >= -48 && py <= h + 48) visibleMarkers.push(m);
+    }
+
+    statusEl.textContent = `${visibleMarkers.length.toLocaleString()} in view`;
+
+    // Heat canvas underlay
+    const heatSpots = renderHeatmap(w, h, originX, originY, z, visibleMarkers);
+
+    // Timeline Trail polyline
+    trailSvg.innerHTML = '';
+    if (state.viewMode === 'trail' && state.markers.length > 1) {
+      const ordered = [...state.markers].sort((a, b) => (a.dateTicks || 0) - (b.dateTicks || 0));
+      const pts = ordered.map(m => `${(lonToWorldX(m.longitude, z) - originX).toFixed(1)},${(latToWorldY(m.latitude, z) - originY).toFixed(1)}`);
+      trailSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      const glow = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      glow.setAttribute('points', pts.join(' '));
+      glow.setAttribute('fill', 'none');
+      glow.setAttribute('stroke', 'rgba(59, 130, 246, 0.24)');
+      glow.setAttribute('stroke-width', '6');
+      glow.setAttribute('stroke-linecap', 'round');
+      glow.setAttribute('stroke-linejoin', 'round');
+      trailSvg.appendChild(glow);
+
+      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      poly.setAttribute('points', pts.join(' '));
+      poly.setAttribute('fill', 'none');
+      poly.setAttribute('stroke', 'rgba(59, 130, 246, 0.88)');
+      poly.setAttribute('stroke-width', '2.5');
+      poly.setAttribute('stroke-dasharray', '6 5');
+      trailSvg.appendChild(poly);
+    }
+
+    markersEl.innerHTML = '';
+
+    if (state.viewMode === 'heat') {
+      for (const s of heatSpots) {
+        const avgLat = s.sumLat / s.items.length;
+        const avgLon = s.sumLon / s.items.length;
+        const px = lonToWorldX(avgLon, z) - originX;
+        const py = latToWorldY(avgLat, z) - originY;
+        const el = document.createElement('div');
+        let bestPlace = null, bestCnt = 0;
+        for (const [pn, cnt] of s.names.entries()) {
+          if (cnt > bestCnt) { bestCnt = cnt; bestPlace = pn; }
+        }
+        const rep = s.items.find(x => x.favorite) || s.items[0];
+        if (s.items.length >= 3) {
+          el.className = 'heat-spot badge';
+          el.textContent = bestPlace && z >= 5
+            ? `${bestPlace.split(',')[0]} · ${s.items.length}`
+            : String(s.items.length);
+        } else {
+          el.className = 'heat-spot';
+        }
+        el.style.left = `${px}px`;
+        el.style.top = `${py}px`;
+        el.title = bestPlace ? `${bestPlace} (${s.items.length})` : `${s.items.length} item(s)`;
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (s.items.length > 1 && state.zoom < 13) {
+            hidePopup();
+            state.centerLat = avgLat;
+            state.centerLon = avgLon;
+            state.zoom = Math.min(MAX_ZOOM, state.zoom + 2);
+            render();
+          } else {
+            showClusterPopup(rep, s.items, px, py);
+          }
+        });
+        markersEl.appendChild(el);
+      }
+      scheduleViewportSync(w, h, cx, cy, z, visibleMarkers);
+      return;
+    }
+
+    if (state.viewMode === 'places') {
+      const placedBoxes = [];
+      for (const p of state.places) {
+        const px = lonToWorldX(p.centerLon, z) - originX;
+        const py = latToWorldY(p.centerLat, z) - originY;
+        if (px < -120 || px > w + 120 || py < -40 || py > h + 40) continue;
+        const estW = Math.min(220, 62 + p.title.length * 6.5);
+        const estH = 30;
+        let overlaps = false;
+        for (const b of placedBoxes) {
+          if (Math.abs(px - b.x) < (estW + b.w) * 0.48 && Math.abs(py - b.y) < estH) {
+            overlaps = true;
+            break;
+          }
+        }
+        if (overlaps) continue;
+        placedBoxes.push({ x: px, y: py, w: estW });
+
+        const pill = document.createElement('div');
+        pill.className = 'place-pill' + (p.favoriteCount > 0 ? ' fav' : '');
+        pill.style.left = `${px}px`;
+        pill.style.top = `${py}px`;
+        const labelSpan = document.createElement('span');
+        labelSpan.textContent = p.title;
+        const countSpan = document.createElement('span');
+        countSpan.className = 'place-count';
+        countSpan.textContent = p.count > 999 ? `${Math.round(p.count / 1000)}k` : String(p.count);
+        pill.appendChild(labelSpan);
+        pill.appendChild(countSpan);
+        pill.title = `${p.title}\n${p.subtitle}`;
+        pill.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (state.zoom < 11) {
+            hidePopup();
+            fitBounds(p.minLat, p.maxLat, p.minLon, p.maxLon);
+          } else if (p.representative) {
+            showClusterPopup(p.representative, [{ ...p.representative }, ...new Array(Math.max(0, p.count - 1))], px, py, { minLat: p.minLat, maxLat: p.maxLat, minLon: p.minLon, maxLon: p.maxLon, count: p.count });
+          }
+        });
+        markersEl.appendChild(pill);
+      }
+      scheduleViewportSync(w, h, cx, cy, z, visibleMarkers);
+      return;
+    }
+
+    const cellSize = state.viewMode === 'pins' ? 10 : (state.viewMode === 'trail' ? 14 : (z >= 16 ? 24 : 46));
+    const cells = new Map();
+
+    for (const m of visibleMarkers) {
+      const px = lonToWorldX(m.longitude, z) - originX;
+      const py = latToWorldY(m.latitude, z) - originY;
+      const key = `${Math.floor(px / cellSize)}_${Math.floor(py / cellSize)}`;
+      let c = cells.get(key);
+      if (!c) { c = { items: [], sumLat: 0, sumLon: 0, fav: false }; cells.set(key, c); }
+      c.items.push(m);
+      c.sumLat += m.latitude;
+      c.sumLon += m.longitude;
+      if (m.favorite) c.fav = true;
+    }
+
+    for (const c of cells.values()) {
+      const avgLat = c.sumLat / c.items.length;
+      const avgLon = c.sumLon / c.items.length;
+      const px = lonToWorldX(avgLon, z) - originX;
+      const py = latToWorldY(avgLat, z) - originY;
+
+      if (c.items.length === 1) {
+        const m = c.items[0];
+        const pin = document.createElement('div');
+        const cls = ['pin'];
+        if (m.favorite) cls.push('fav');
+        else if (m.kind === 'video') cls.push('video');
+        if (m.origin === 'manual') cls.push('manual');
+        if (state.highlightedKey && markerKey(m) === state.highlightedKey) cls.push('active');
+        pin.className = cls.join(' ');
+        pin.style.left = `${px}px`;
+        pin.style.top = `${py}px`;
+        pin.title = m.locationName ? `${m.name} (${m.locationName})` : m.name;
+        pin.textContent = m.favorite ? '★' : (m.kind === 'video' ? '▶' : '');
+        pin.addEventListener('click', (e) => { e.stopPropagation(); showClusterPopup(m, [m], px, py); });
+        markersEl.appendChild(pin);
+      } else {
+        const el = document.createElement('div');
+        el.className = 'cluster' + (c.fav ? ' fav' : '');
+        el.style.left = `${px}px`;
+        el.style.top = `${py}px`;
+        el.textContent = c.items.length > 999 ? `${Math.round(c.items.length / 1000)}k` : String(c.items.length);
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (state.zoom < MAX_ZOOM - 1) {
+            hidePopup();
+            state.centerLat = avgLat;
+            state.centerLon = avgLon;
+            state.zoom = Math.min(MAX_ZOOM, state.zoom + 2);
+            render();
+          } else {
+            showClusterPopup(c.items[0], c.items, px, py);
+          }
+        });
+        markersEl.appendChild(el);
+      }
+    }
+
+    scheduleViewportSync(w, h, cx, cy, z, visibleMarkers);
+  }
+
+  function showClusterPopup(m, groupItems, px, py, overrideBounds) {
+    state.activeItem = m;
+    state.highlightedKey = markerKey(m);
+    const totalInSpot = overrideBounds ? overrideBounds.count : groupItems.length;
+    popupNameEl.textContent = totalInSpot > 1
+      ? `${m.name} (+${(totalInSpot - 1).toLocaleString()} here)`
+      : m.name;
+    const placeLine = m.locationName ? `${m.locationName}\n` : '';
+    const camLine = m.cameraModel ? `${m.cameraModel} · ` : '';
+    const originTag = m.origin === 'manual' ? ' (Manual pin)' : (m.kind === 'video' ? ' · Video' : '');
+    popupMetaEl.textContent = `${placeLine}${camLine}${m.dateText}\n${formatCoord(m.latitude, m.longitude)}${originTag}`;
+    popupThumbEl.style.display = 'none';
+    popupThumbEl.src = '';
+    popupFallbackEl.style.display = 'block';
+
+    if (totalInSpot > 1) {
+      if (overrideBounds) {
+        state.activeClusterBounds = overrideBounds;
+      } else {
+        let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+        for (const x of groupItems) {
+          if (x.latitude < minLat) minLat = x.latitude;
+          if (x.latitude > maxLat) maxLat = x.latitude;
+          if (x.longitude < minLon) minLon = x.longitude;
+          if (x.longitude > maxLon) maxLon = x.longitude;
+        }
+        state.activeClusterBounds = { minLat: minLat - 0.004, maxLat: maxLat + 0.004, minLon: minLon - 0.004, maxLon: maxLon + 0.004 };
+      }
+      popupFilterBtn.style.display = 'inline-block';
+      popupFilterBtn.textContent = `Show ${totalInSpot}`;
+    } else {
+      state.activeClusterBounds = null;
+      popupFilterBtn.style.display = 'none';
+    }
+
+    const w = mapEl.clientWidth || 800;
+    const h = mapEl.clientHeight || 600;
+    popupEl.style.left = `${Math.max(12, Math.min(w - 286, px - 137))}px`;
+    popupEl.style.top = `${Math.max(58, Math.min(h - 262, py - 256))}px`;
+    popupEl.style.display = 'block';
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage({ type: 'requestThumb', sourceId: m.sourceId, relativePath: m.relativePath });
+    }
+  }
+
+  function hidePopup() {
+    popupEl.style.display = 'none';
+    state.activeItem = null;
+    state.activeClusterBounds = null;
+    state.highlightedKey = null;
+  }
+
+  function fitBounds(minLat, maxLat, minLon, maxLon) {
+    state.centerLat = (minLat + maxLat) / 2;
+    state.centerLon = (minLon + maxLon) / 2;
+    const maxSpan = Math.max(0.01, maxLat - minLat, maxLon - minLon);
+    if (maxSpan > 120) state.zoom = 2;
+    else if (maxSpan > 40) state.zoom = 4;
+    else if (maxSpan > 10) state.zoom = 6;
+    else if (maxSpan > 2) state.zoom = 8;
+    else if (maxSpan > 0.3) state.zoom = 11;
+    else state.zoom = 13;
+    render();
+  }
+
+  function fitAll() {
+    if (!state.markers.length) { render(); return; }
+    let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+    for (const m of state.markers) {
+      if (m.latitude < minLat) minLat = m.latitude;
+      if (m.latitude > maxLat) maxLat = m.latitude;
+      if (m.longitude < minLon) minLon = m.longitude;
+      if (m.longitude > maxLon) maxLon = m.longitude;
+    }
+    fitBounds(minLat, maxLat, minLon, maxLon);
+  }
+
+  let dragging = false, movedDist = 0, lastX = 0, lastY = 0;
+  mapEl.addEventListener('mousedown', (e) => {
+    if (e.target !== mapEl && e.target !== markersEl) return;
+    dragging = true;
+    movedDist = 0;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    if (!state.pinMode) mapEl.classList.add('dragging');
+    hidePopup();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    movedDist += Math.abs(dx) + Math.abs(dy);
+    lastX = e.clientX;
+    lastY = e.clientY;
+    const cx = lonToWorldX(state.centerLon, state.zoom) - dx;
+    const cy = latToWorldY(state.centerLat, state.zoom) - dy;
+    state.centerLon = Math.max(-180, Math.min(180, worldXToLon(cx, state.zoom)));
+    state.centerLat = Math.max(-85, Math.min(85, worldYToLat(cy, state.zoom)));
+    render();
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (dragging && state.pinMode && movedDist < 6) {
+      const rect = mapEl.getBoundingClientRect();
+      const w = mapEl.clientWidth || 800;
+      const h = mapEl.clientHeight || 600;
+      const wx = lonToWorldX(state.centerLon, state.zoom) - w / 2 + (e.clientX - rect.left);
+      const wy = latToWorldY(state.centerLat, state.zoom) - h / 2 + (e.clientY - rect.top);
+      const lat = Math.max(-85, Math.min(85, worldYToLat(wy, state.zoom)));
+      const lon = Math.max(-180, Math.min(180, worldXToLon(wx, state.zoom)));
+      if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage({ type: 'pickedCoord', lat, lon });
+      }
+    }
+    dragging = false;
+    mapEl.classList.remove('dragging');
+  });
+
+  // Zoom around mouse cursor
+  mapEl.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, state.zoom + (e.deltaY < 0 ? 1 : -1)));
+    if (nextZoom === state.zoom) return;
+    const rect = mapEl.getBoundingClientRect();
+    const w = mapEl.clientWidth || 800;
+    const h = mapEl.clientHeight || 600;
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const oldCx = lonToWorldX(state.centerLon, state.zoom);
+    const oldCy = latToWorldY(state.centerLat, state.zoom);
+    const focusLon = worldXToLon(oldCx - w / 2 + mx, state.zoom);
+    const focusLat = Math.max(-85, Math.min(85, worldYToLat(oldCy - h / 2 + my, state.zoom)));
+
+    state.zoom = nextZoom;
+    const newFocusWx = lonToWorldX(focusLon, nextZoom);
+    const newFocusWy = latToWorldY(focusLat, nextZoom);
+    const newCx = newFocusWx - (mx - w / 2);
+    const newCy = newFocusWy - (my - h / 2);
+    state.centerLon = Math.max(-180, Math.min(180, worldXToLon(newCx, nextZoom)));
+    state.centerLat = Math.max(-85, Math.min(85, worldYToLat(newCy, nextZoom)));
+    render();
+  }, { passive: false });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (popupEl.style.display === 'block') { hidePopup(); return; }
+      if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ type: 'escapePressed' });
+    }
+  });
+
+  styleSelect.addEventListener('change', () => { state.styleExplicit = true; applyStyle(styleSelect.value, true); });
+  document.getElementById('zoomIn').addEventListener('click', () => { state.zoom = Math.min(MAX_ZOOM, state.zoom + 1); render(); });
+  document.getElementById('zoomOut').addEventListener('click', () => { state.zoom = Math.max(MIN_ZOOM, state.zoom - 1); render(); });
+  document.getElementById('fitAll').addEventListener('click', fitAll);
+  document.getElementById('popupCloseBtn').addEventListener('click', hidePopup);
+  document.getElementById('popupOpenBtn').addEventListener('click', () => {
+    if (state.activeItem && window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage({ type: 'openFile', sourceId: state.activeItem.sourceId, relativePath: state.activeItem.relativePath });
+    }
+  });
+  popupFilterBtn.addEventListener('click', () => {
+    const b = state.activeClusterBounds;
+    if (b && window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage({ type: 'filterBounds', minLat: b.minLat, maxLat: b.maxLat, minLon: b.minLon, maxLon: b.maxLon });
+    }
+  });
+  document.getElementById('filterBoundsBtn').addEventListener('click', () => {
+    const w = mapEl.clientWidth || 800;
+    const h = mapEl.clientHeight || 600;
+    const b = getBounds(w, h, lonToWorldX(state.centerLon, state.zoom), latToWorldY(state.centerLat, state.zoom), state.zoom);
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage({ type: 'filterBounds', minLat: b.minLat, maxLat: b.maxLat, minLon: b.minLon, maxLon: b.maxLon });
+    }
+  });
+
+  if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (!msg) return;
+      if (msg.type === 'setMarkers') {
+        state.markers = msg.markers || [];
+        state.places = msg.places || [];
+        if (msg.style) {
+          state.styleExplicit = true;
+          applyStyle(msg.style, false);
+        }
+        if (msg.theme) applyTheme(msg.theme);
+        if (msg.viewMode) state.viewMode = msg.viewMode;
+        if (msg.preserveViewport && typeof msg.centerLat === 'number' && typeof msg.centerLon === 'number' && typeof msg.zoom === 'number') {
+          state.centerLat = Math.max(-85, Math.min(85, msg.centerLat));
+          state.centerLon = Math.max(-180, Math.min(180, msg.centerLon));
+          state.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(msg.zoom)));
+          render();
+        } else {
+          fitAll();
+        }
+      } else if (msg.type === 'setViewMode' && msg.viewMode) {
+        state.viewMode = msg.viewMode;
+        render();
+      } else if (msg.type === 'setTheme' && msg.theme) {
+        applyTheme(msg.theme);
+      } else if (msg.type === 'setPinMode') {
+        state.pinMode = !!msg.enabled;
+        mapEl.classList.toggle('pin-mode', state.pinMode);
+        pinHintEl.style.display = state.pinMode ? 'block' : 'none';
+      } else if (msg.type === 'thumb' && state.activeItem && msg.sourceId === state.activeItem.sourceId && msg.relativePath === state.activeItem.relativePath) {
+        if (msg.dataUri) {
+          popupThumbEl.src = msg.dataUri;
+          popupThumbEl.style.display = 'block';
+          popupFallbackEl.style.display = 'none';
+        }
+      } else if (msg.type === 'focusPin' && msg.lat != null && msg.lon != null) {
+        state.centerLat = msg.lat;
+        state.centerLon = msg.lon;
+        state.zoom = Math.max(state.zoom, 13);
+        if (msg.sourceId && msg.relativePath) state.highlightedKey = `${msg.sourceId}\n${msg.relativePath}`;
+        render();
+      } else if (msg.type === 'fitBounds' && msg.minLat != null) {
+        fitBounds(msg.minLat, msg.maxLat, msg.minLon, msg.maxLon);
+      } else if (msg.type === 'fitAll') {
+        fitAll();
+      }
+    });
+  }
+
+  window.addEventListener('resize', render);
+  render();
+})();
+</script>
+</body>
+</html>

@@ -332,7 +332,89 @@ public sealed class CacheTests : IDisposable
         Assert.Equal(1, coverage.Total); Assert.Equal(0, coverage.Cached); Assert.Equal(0, generator.Calls);
     }
 
+    [Fact] public async Task RebuildReplacesOnlySuccessfullyGeneratedPreviewsAndPreservesOfflineHits()
+    {
+        var source=Path.Combine(root,"drive"); Directory.CreateDirectory(source);
+        var path=Path.Combine(source,"a.jpg"); File.WriteAllBytes(path,new byte[4]);
+        var resolver=new Resolver { Root=source }; var catalog=new MediaCache(Path.Combine(root,"catalog.db"),resolver);
+        await catalog.InitializeAsync(); await catalog.ScanAsync("source",source);
+        var media=Assert.Single(await catalog.ListAsync("source")); var key=ThumbnailCache.Key(media);
+        using var cache=new ThumbnailCache(CachePath); await cache.StoreAsync(key,new byte[]{42});
+        var generator=new Generator(); var preparation=new OfflinePreparation(catalog,cache,new(cache,resolver,generator));
+        Assert.Equal(1,(await preparation.RebuildAsync()).Updated);
+        Assert.Equal(new byte[]{1,2,3},await cache.ReadAsync(key)); Assert.Equal(1,generator.Calls);
+        resolver.Root=null;
+        Assert.Equal(0,(await preparation.RebuildAsync()).Updated);
+        Assert.Equal(new byte[]{1,2,3},await cache.ReadAsync(key)); Assert.Equal(1,generator.Calls);
+    }
+
+    [Fact] public async Task RebuildFailureAndCancellationKeepPreviousPreview()
+    {
+        var path=Path.Combine(root,"a.jpg"); File.WriteAllBytes(path,new byte[4]);
+        var media=Media() with { ModifiedTicks=File.GetLastWriteTimeUtc(path).Ticks };
+        var resolver=new Resolver { Root=root }; var generator=new Generator { OnGenerate=()=>resolver.Root=null };
+        using var cache=new ThumbnailCache(CachePath); var key=ThumbnailCache.Key(media); await cache.StoreAsync(key,new byte[]{42});
+        var service=new ThumbnailService(cache,resolver,generator);
+        Assert.Null(await service.GetAsync(media,allowEviction:false,forceRefresh:true));
+        Assert.Equal(new byte[]{42},await cache.ReadAsync(key));
+        using var cancel=new CancellationTokenSource(); resolver.Root=root; generator.OnGenerate=()=>cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>service.GetAsync(media,ct:cancel.Token,allowEviction:false,forceRefresh:true));
+        Assert.Equal(new byte[]{42},await cache.ReadAsync(key));
+    }
+
+    [Fact] public async Task RebuildAtCapacityPreservesOtherSourcesAndOldPreview()
+    {
+        var path=Path.Combine(root,"a.jpg"); File.WriteAllBytes(path,new byte[4]);
+        var media=Media() with { ModifiedTicks=File.GetLastWriteTimeUtc(path).Ticks };
+        using var cache=new ThumbnailCache(CachePath,5); var key=ThumbnailCache.Key(media);
+        var offline=ThumbnailCache.Key(Media("offline.jpg")); await cache.StoreAsync(key,new byte[]{42}); await cache.StoreAsync(offline,new byte[]{7,7,7});
+        var service=new ThumbnailService(cache,new Resolver { Root=root },new Generator());
+        Assert.Null(await service.GetAsync(media,allowEviction:false,forceRefresh:true));
+        Assert.Equal(new byte[]{42},await cache.ReadAsync(key)); Assert.Equal(new byte[]{7,7,7},await cache.ReadAsync(offline));
+    }
+
+    [Fact] public async Task CleanupRemovesObsoleteKeysButRetainsCurrentOfflineSources()
+    {
+        var source=Path.Combine(root,"drive"); Directory.CreateDirectory(source); var path=Path.Combine(source,"a.jpg"); File.WriteAllBytes(path,new byte[4]);
+        var resolver=new Resolver { Root=source }; var catalog=new MediaCache(Path.Combine(root,"catalog.db"),resolver); await catalog.InitializeAsync(); await catalog.ScanAsync("source",source);
+        var media=Assert.Single(await catalog.ListAsync("source"));
+        using var cache=new ThumbnailCache(CachePath);
+        var current=ThumbnailCache.Key(media); var old=ThumbnailCache.Key(media with { Length=1 }); var orphan=ThumbnailCache.Key(Media("removed.jpg"));
+        await cache.StoreAsync(current,new byte[]{1,2}); await cache.StoreAsync(old,new byte[]{3,4,5}); await cache.StoreAsync(orphan,new byte[]{6});
+        resolver.ThrowOnResolve=true;
+        var keys=await catalog.PreviewKeysAsync(); var snapshot=await cache.SnapshotAsync();
+        var unused=snapshot.Keys.Where(k=>!keys.Contains(k)).ToHashSet();
+        Assert.Equal(new CacheRemoval(2,4),await cache.InspectRemovalAsync(unused));
+        Assert.Equal(new CacheRemoval(2,4),await cache.RemoveAsync(unused));
+        Assert.Equal(new byte[]{1,2},await cache.ReadAsync(current)); Assert.Null(await cache.ReadAsync(old));
+        Assert.Equal(2,(await cache.SnapshotAsync()).Bytes);
+    }
+
+    [Fact] public async Task SourceRemovalUpdatesCountsAlbumsAndScopedPreviewsWithoutDeletingOriginals()
+    {
+        var source=Path.Combine(root,"drive"); Directory.CreateDirectory(source); File.WriteAllBytes(Path.Combine(source,"a.jpg"),new byte[4]);
+        var catalog=new MediaCache(Path.Combine(root,"catalog.db")); await catalog.InitializeAsync(); await catalog.ScanAsync("a",source); await catalog.ScanAsync("b",source);
+        var a=Assert.Single((await catalog.QueryAsync(new(SourceId:"a"))).Items); var b=Assert.Single((await catalog.QueryAsync(new(SourceId:"b"))).Items);
+        var album=await catalog.SaveAlbumAsync("Keep"); await catalog.SetAlbumItemsAsync(album,[a.Media,b.Media],true);
+        var keys=await catalog.PreviewKeysAsync("a");
+        using var cache=new ThumbnailCache(CachePath); await cache.StoreAsync(ThumbnailCache.Key(a.Media),new byte[]{1}); await cache.StoreAsync(ThumbnailCache.Key(b.Media),new byte[]{2});
+        await catalog.RemoveSourceAsync("a"); await cache.RemoveAsync(keys);
+        Assert.Single(await catalog.SourceCountsAsync()); Assert.Equal(1,Assert.Single(await catalog.AlbumsAsync()).Count);
+        Assert.Equal(b.Id,Assert.Single((await catalog.QueryAsync(new(AlbumId:album))).Items).Id);
+        Assert.NotNull(await cache.ReadAsync(ThumbnailCache.Key(b.Media))); Assert.True(File.Exists(Path.Combine(source,"a.jpg")));
+    }
+
     private sealed class LongProgress(Action<long> callback) : IProgress<long> { public void Report(long value) => callback(value); }
+
+    [Fact] public async Task SourceListShowsCurrentMountPathAfterReconnect()
+    {
+        var first=Path.Combine(root,"first"); var second=Path.Combine(root,"second"); Directory.CreateDirectory(first);
+        File.WriteAllBytes(Path.Combine(first,"a.jpg"),new byte[4]);
+        var resolver=new Resolver { Root=first }; var catalog=new MediaCache(Path.Combine(root,"catalog.db"),resolver);
+        await catalog.InitializeAsync(); await catalog.ScanAsync("source",first);
+        Directory.Move(first,second); resolver.Root=second;
+        Assert.Equal(second,Assert.Single(await catalog.SourcesAsync()).RootPath);
+    }
 
     private sealed class CallbackProgress(Action<int> callback) : IProgress<int> { public void Report(int value) => callback(value); }
 

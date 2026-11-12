@@ -1,13 +1,15 @@
 # Luma delivery roadmap
 
-| Milestone | Scope | Acceptance |
+Status: the portable gallery development milestone is closed and merged into `main` through [PR #6](https://github.com/smile-plzz/Luma-windows-software/pull/6). The first real-use follow-up, [PR #7](https://github.com/smile-plzz/Luma-windows-software/pull/7), is also merged and shipped: import-lock correction and minimal UI refinement. [PR #8](https://github.com/smile-plzz/Luma-windows-software/pull/8) is also merged and shipped: catalog-first reopening and reconnect updates that preserve the gallery. [PR #9](https://github.com/smile-plzz/Luma-windows-software/pull/9) is merged and verified: resumable indexing and On this day memories. [PR #10](https://github.com/smile-plzz/Luma-windows-software/pull/10) is merged and verified for v0.2.0: source management, refresh, storage maintenance and Activity. [PR #11](https://github.com/smile-plzz/Luma-windows-software/pull/11) is merged and verified for v0.3.0: visible formats and active filters, complete Reset, consolidated navigation and pinned maintenance destinations. [PR #12](https://github.com/smile-plzz/Luma-windows-software/pull/12) is merged and verified for v0.4.0: explicit month browsing, visible multi-file selection and measured large-catalog query improvements. [PR #13](https://github.com/smile-plzz/Luma-windows-software/pull/13) is merged and verified for v0.5.0: reversible library/scan exclusions and executable branding. [PR #14](https://github.com/smile-plzz/Luma-windows-software/pull/14) closes the planned build in v0.6.0 with remembered views, clear import progress and final UX feedback. The current stage is real-life testing and everyday use. No additional feature phase is being started automatically.
+
+| Milestone | Scope | Status |
 | --- | --- | --- |
 | Phase 1 — native library | Source identity, read-only scanning, thumbnails, search/tags/favorites, native file actions | Merged; Windows/Linux core, Windows integration and native UI smoke passed; real-device acceptance remains |
 | Phase 2 — offline browsing | Bulk preparation, cancellation/resume, non-evicting preparation, coverage/usage, cached folders, cache clearing | Implemented on the Phase 2 branch; exact CI evidence is recorded in QA and the pull request |
 | Phase 3 — gallery redesign | Apple-inspired native shell, continuous gallery, customization/sorting, meaningful timeline, albums and Windows file control | Approved product direction; [implementation plan](GALLERY_REDESIGN.md) defines five ordered steps and acceptance criteria; not yet implemented |
 | Phase 4 — scale and delivery | Measured 100k-item workloads, watcher/reconciliation strategy, responsive native file operations, signing/installer | Proposed; requires benchmarks and real-PC acceptance before release claims |
 
-## Immediate next steps
+Reversible folder, source and global extension rules now filter browsing and future scans. Use Settings or Refresh → Manage exclusions to restore them; Reset does not remove rules. Originals and saved organization are retained. Changing rules invalidates affected paused traversal checkpoints, not the published catalog. See [usage and limits](EXCLUSIONS.md) and [executable branding](BRANDING.md).
 
 1. Review the Phase 2 CI evidence and download its complete Windows artifact.
 2. Run the removable-drive, limited-capacity, cancellation/restart and cache-clearing acceptance sequence in [QA](QA.md) using disposable fixtures.
@@ -16,4 +18,4 @@
 
 The latest user testing changes the priority: a comfortable gallery and continuous browsing come before further expansion of the existing maintenance-heavy screen. Default to month-grouped chronological browsing, while preserving an optional plain grid and native Windows file-management conventions.
 
-No milestone currently includes an embedded media player, cloud synchronization or copying full originals into the preview cache. Preview pinning needs a separate capacity/reservation design rather than an unlimited promise of retention.
+Saved browsing position, explicit discovery/date-reading progress, accessible action hints and theme-matched dialogs complete the planned build. See [behavior and limits](FINAL_EXPERIENCE.md). Verified shipment evidence is recorded in the testing handoff.

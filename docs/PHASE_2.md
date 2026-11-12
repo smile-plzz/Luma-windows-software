@@ -1,5 +1,9 @@
 # Phase 2: deliberate offline browsing
 
+> Historical Phase 2 build notes. In the current interface, use **Storage & previews → Repair missing previews** for offline preparation; coverage is shown in that same screen. See [the current handoff](TESTING_HANDOFF.md).
+
+Historical milestone record. Both phases and the subsequent gallery redesign are merged. For current behavior use [GALLERY_BUILD.md](GALLERY_BUILD.md); for the shipped download and real-life testing use [TESTING_HANDOFF.md](TESTING_HANDOFF.md). Paging and deferred-feature descriptions below refer to this historical phase.
+
 ## Scope
 
 This phase makes offline browsing useful without visiting every media page first. It adds bulk thumbnail preparation, honest coverage reporting and cached folder navigation to the Phase 1 Windows app. The original media stays on its source drive.

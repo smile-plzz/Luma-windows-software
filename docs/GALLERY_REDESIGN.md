@@ -1,6 +1,6 @@
 # Luma gallery redesign
 
-Status: implementation plan, based on feedback from testing the Phase 2 Windows build. This document describes the next build; it does not claim that the redesign is already implemented.
+Status: historical approved specification, implemented and merged into `main` through PR #6. Development of this milestone is closed. The specification below preserves the original targets; [the build guide](GALLERY_BUILD.md) is authoritative for shipped behavior and explicit deviations, and [the testing handoff](TESTING_HANDOFF.md) records verified evidence and remaining bench acceptance.
 
 ## Product direction
 
@@ -10,9 +10,9 @@ The visual direction is Apple-inspired: media takes priority, spacing is deliber
 
 The approved default is a chronological gallery, newest first, grouped by month. A plain continuous grid is one switch away. Day and year grouping are additional choices. Preferences persist across restarts.
 
-## Why the existing screen needs to change
+## Original problem
 
-The current WinUI grid replaces its contents in pages of 120. Users must repeatedly choose Next to explore a drive. Tiles always show filename, type, date and state, while source maintenance, cache controls and organization fields consume substantial space. Timeline groups use modification dates and repeat at page boundaries.
+The former Phase 2 WinUI grid replaced its contents in pages of 120. Users must repeatedly choose Next to explore a drive. Tiles always show filename, type, date and state, while source maintenance, cache controls and organization fields consume substantial space. Timeline groups use modification dates and repeat at page boundaries.
 
 Keep the useful foundations: SQLite catalog, stable volume identities, read-only scanning, versioned thumbnail cache, offline preparation, default-app opening and native file actions. Redesign the presentation and browsing pipeline around those foundations.
 
@@ -120,4 +120,8 @@ Manual acceptance includes USB disconnect/reconnect under a changed drive letter
 
 ## Scope boundaries
 
-No cloud account, embedded player/editor, face recognition, automatic original-file rearrangement or full-original backup is required. Preview caching remains bounded and is not backup storage. The next action is Step 1, followed by the remaining steps in order; no further design-choice confirmation is needed for the defaults recorded above.
+No cloud account, embedded player/editor, face recognition, automatic original-file rearrangement or full-original backup is required. Preview caching remains bounded and is not backup storage. The implementation sequence above is complete at the scope recorded in the build guide. The next action is real-life testing and feedback, not restarting Step 1.
+
+## Implementation decisions
+
+The native gallery keeps lightweight loaded records for backward navigation and stable selection; it releases decoded images as containers recycle. This replaces the initially proposed removal of entire record windows, avoiding scroll-position churn. Sources use a cached child-folder navigator with a parent action rather than a fully expanded recursive tree. Date jumps target available months and continue into older results. Conflicting transfer filenames are preserved/skipped rather than offering overwrite. These behaviors are explicit in the build guide and tested at their actual scope.

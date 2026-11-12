@@ -1,0 +1,81 @@
+name: Publish verified Windows release
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag (e.g. v0.7.0-rc1 or v0.7.0)
+        required: true
+        default: v0.7.0-rc1
+      tested_sha:
+        description: Exact git commit SHA verified in CI
+        required: true
+      build_run:
+        description: GitHub Actions build workflow run ID
+        required: true
+      artifact_id:
+        description: Luma-Gallery-win-x64 artifact ID from build_run
+        required: true
+      zip_sha256:
+        description: Expected SHA-256 hex digest of Luma-Gallery-win-x64 zip
+        required: true
+      publish_latest:
+        description: Promote from draft to public release
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: luma-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      TESTED_SHA: ${{ inputs.tested_sha }}
+      BUILD_RUN: ${{ inputs.build_run }}
+      ARTIFACT_ID: ${{ inputs.artifact_id }}
+      ZIP_SHA256: ${{ inputs.zip_sha256 }}
+      PUBLISH_LATEST: ${{ inputs.publish_latest }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify provenance and retrieve tested package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "releases/$RELEASE_TAG.md"
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN" > run.json
+          jq -e --arg sha "$TESTED_SHA" '.conclusion == "success" and .head_sha == $sha' run.json
+          gh api "repos/$GH_REPO/actions/artifacts/$ARTIFACT_ID" > artifact.json
+          jq -e --arg sha "$TESTED_SHA" --arg digest "sha256:$ZIP_SHA256" '.expired == false and .name == "Luma-Gallery-win-x64" and .workflow_run.head_sha == $sha and .digest == $digest' artifact.json
+          mkdir package
+          gh api "repos/$GH_REPO/actions/artifacts/$ARTIFACT_ID/zip" > "package/Luma-$RELEASE_TAG-win-x64.zip"
+          printf '%s  %s\n' "$ZIP_SHA256" "Luma-$RELEASE_TAG-win-x64.zip" > package/SHA256SUMS.txt
+          (cd package && sha256sum --check SHA256SUMS.txt)
+          unzip -t "package/Luma-$RELEASE_TAG-win-x64.zip"
+          unzip -Z1 "package/Luma-$RELEASE_TAG-win-x64.zip" | grep -Fx 'Luma.App.exe'
+      - name: Publish versioned download
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --json isDraft > existing.json 2>/dev/null; then
+            if jq -e '.isDraft == false' existing.json; then
+              mkdir existing
+              gh release download "$RELEASE_TAG" --pattern "Luma-$RELEASE_TAG-win-x64.zip" --dir existing
+              (cd existing && sha256sum --check ../package/SHA256SUMS.txt)
+              echo 'The verified release is already published.'
+              exit 0
+            fi
+          else
+            gh release create "$RELEASE_TAG" --target "$TESTED_SHA" --title "Luma $RELEASE_TAG: Windows portable" --notes-file "releases/$RELEASE_TAG.md" --draft
+          fi
+          gh release upload "$RELEASE_TAG" "package/Luma-$RELEASE_TAG-win-x64.zip" package/SHA256SUMS.txt --clobber
+          if [ "$PUBLISH_LATEST" = "true" ]; then
+            gh release edit "$RELEASE_TAG" --draft=false --latest
+          fi

@@ -23,21 +23,38 @@ public sealed class WindowsThumbnailGenerator : IThumbnailGenerator
                 if (thumbnail is not null && thumbnail.Type == ThumbnailType.Image && thumbnail.Size > 0)
                     return await ReadBytes(thumbnail, ct);
             }
+
             using var input = await file.OpenReadAsync().AsTask(ct);
             var decoder = await BitmapDecoder.CreateAsync(input).AsTask(ct);
+            // Fuzzing & hostile file guard: 100 megapixel ceiling and zero dimension check
             if ((long)decoder.PixelWidth * decoder.PixelHeight > 100_000_000 || decoder.PixelWidth == 0 || decoder.PixelHeight == 0) return null;
+
             var scale = Math.Min(1d, (double)pixels / Math.Max(decoder.PixelWidth, decoder.PixelHeight));
-            var transform = new BitmapTransform { ScaledWidth = Math.Max(1, (uint)(decoder.PixelWidth * scale)),
-                ScaledHeight = Math.Max(1, (uint)(decoder.PixelHeight * scale)), InterpolationMode = BitmapInterpolationMode.Fant };
+            var transform = new BitmapTransform
+            {
+                ScaledWidth = Math.Max(1, (uint)(decoder.PixelWidth * scale)),
+                ScaledHeight = Math.Max(1, (uint)(decoder.PixelHeight * scale)),
+                InterpolationMode = BitmapInterpolationMode.Fant
+            };
+
             using var bitmap = await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
                 transform, ExifOrientationMode.RespectExifOrientation, ColorManagementMode.DoNotColorManage).AsTask(ct);
+
             using var output = new InMemoryRandomAccessStream();
             var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output).AsTask(ct);
-            encoder.SetSoftwareBitmap(bitmap); await encoder.FlushAsync().AsTask(ct);
+            encoder.SetSoftwareBitmap(bitmap);
+            await encoder.FlushAsync().AsTask(ct);
             return await ReadBytes(output, ct);
         }
-        catch (Exception e) when (e is COMException or IOException or UnauthorizedAccessException or ArgumentException)
-        { return null; }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Corrupt, truncated, hostile, or unsupported codecs return null safely without crashing the host process.
+            return null;
+        }
     }
 
     private static async Task<byte[]?> ReadBytes(IRandomAccessStream stream, CancellationToken ct)
@@ -46,6 +63,8 @@ public sealed class WindowsThumbnailGenerator : IThumbnailGenerator
         using var reader = new DataReader(stream.GetInputStreamAt(0));
         var size = checked((uint)stream.Size);
         if (await reader.LoadAsync(size).AsTask(ct) != size) return null;
-        var bytes = new byte[checked((int)size)]; reader.ReadBytes(bytes); return bytes;
+        var bytes = new byte[checked((int)size)];
+        reader.ReadBytes(bytes);
+        return bytes;
     }
 }

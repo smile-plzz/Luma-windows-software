@@ -1,47 +1,61 @@
 # Luma
 
-A native Windows media library for existing folders and drives. Browse photos and videos, organize favorites and tags, and open originals in your default apps.
+**A fast, local-only Windows media library for photos and videos scattered across your PC folders and external drives, without importing, duplicating, or risking originals.**
 
-## Run the Windows app
+[User Guide](docs/USER_GUIDE.md) | [Troubleshooting](docs/TROUBLESHOOTING.md) | [Known Limits](docs/KNOWN_LIMITS.md) | [Releases](https://github.com/smile-plzz/Luma-windows-software/releases)
 
-1. Open the **Build and test** GitHub Actions run for the Phase 2 branch/PR.
-2. Download the **Luma-Phase2-win-x64** artifact from a successful run.
-3. Extract the entire ZIP to a writable folder and run **Luma.App.exe**. Keep the bundled files beside the executable.
-4. Select **Add folder or drive**. Browse the indexed media; thumbnails are cached as you visit pages.
+---
 
-Windows 10 version 2004+ or Windows 11, x64. The portable build bundles .NET and Windows App SDK dependencies. It is unsigned, so Windows may show its usual downloaded-app warning. There is no installer or store package yet.
+## Why Luma?
 
-## What works
+Your photos and videos stay exactly where they are on internal drives, USB drives, or network shares. Luma builds a lightweight SQLite catalog and bounded thumbnail cache on your PC (`%LOCALAPPDATA%\Luma`) so you can scroll smoothly, curate favorites, multi-word tags, and albums, explore places offline, and keep using your library even after unplugging external archive drives.
 
-- Background read-only folder/drive scanning, cancellation, rescanning and safe stale-entry reconciliation after an error-free scan.
-- Paged thumbnail grid, timeline by modification month, search, source/folder filters, photo/video filters, favorites and tags.
-- Default-app opening, Explorer reveal, copy/cut/paste, rename and Windows Recycle Bin deletion dialogs.
-- Cached subfolder navigation with parent navigation, available offline without rescanning older libraries.
-- Bulk offline preview preparation with cancellation/resume, coverage and cache usage, and confirmed cache clearing.
-- PC-local SQLite catalog and bounded persistent thumbnails. Cached hits do not probe an external drive.
-- Volume GUID/serial/folder identities that resolve a drive's current mount instead of trusting its old letter.
-- Light/dark/system themes and configurable cache limit (1–32 GiB, applied at restart).
+## 3-Step Quick Start
 
-## Shortcuts
+1. **Download:** Get the latest verified `win-x64` ZIP from [GitHub Releases](https://github.com/smile-plzz/Luma-windows-software/releases) (check `SHA256SUMS.txt`; currently signed releases are pending, see SmartScreen note below).
+2. **Extract:** Right-click the ZIP -> **Extract All...** into a writable folder (keep all `.dll`, `.pri`, and `Assets` files beside `Luma.App.exe`), then launch `Luma.App.exe`.
+3. **Add media:** Click **Add folder or drive** or drop a folder onto the welcome screen. Scanning is strictly read-only and you can browse as soon as the first thumbnails load.
 
-| Shortcut | Action |
-| --- | --- |
-| Ctrl+C / Ctrl+X | Copy / cut selected originals |
-| Ctrl+V | Choose a destination folder and paste |
-| Ctrl+A | Select the current page |
-| F2 | Rename selected original |
-| Delete | Confirm deletion through Windows shell |
-| Double-click | Open in the default app |
+Platform floor: **Windows 10 version 2004+ or Windows 11 (x64)**. Bundles .NET 8 Desktop Runtime and Windows App SDK dependencies.
 
-Text inputs keep their normal editing shortcuts. Files on offline drives can be browsed from cache but cannot be opened or modified. Windows handles collisions and native file-operation confirmations.
+---
 
-## Storage
+## Core Capabilities
 
-`%LOCALAPPDATA%\Luma` contains the catalog, settings and thumbnails on the PC. Original files stay on their source volumes. Default thumbnail limit: 2 GiB. Offline thumbnail retention depends on cache capacity. Use **Prepare offline previews** for the selected source (or all sources), then **Check offline coverage** before disconnecting. Preparation preserves existing thumbnails when space runs out; ordinary browsing still uses LRU eviction. Previews are not backups of originals.
+- **Safe Read-Only Indexing & Resumable Scans:** Background scanning saves checkpoints cleanly and supports Pause, Resume, Cancel, and Restart from **Activity**. Stale entries are reconciled only after an error-free scan.
+- **External Drive Resilience & Offline Mode:** Drives track by Volume GUID/serial fingerprint rather than drive letter alone. Browse cached metadata, search, Favorites, multi-word tags, and virtual albums offline; reconnect seamlessly in place when plugged back in.
+- **Calm, Customizable Browsing:** Virtualized timeline grouped by Year, Month, Day, or Session; **Uniform**, **Adaptive**, or **Moments** layouts; photo stacks; Month navigation with counts; remembered browse position across restarts.
+- **Fast Gallery & External App Opening (`Enter` / Double-Click):** Browse thumbnails smoothly across folders and drives, then press `Enter`, double-click, or click **Open** (in the gallery or Map) to open originals directly in your default Windows photo viewer or video player (Photos, IrfanView, VLC, Movies & TV).
+- **Powerful Local Search & Curation:** Quote-aware search (`tag:"Family Trip"`, `location:"New York"`, `folder:"2025/Trips"`, `year:2024`, `ext:dng`, `is:fav`, `has:gps`, `size:>10mb`), removable filter chips, global Tag Manager, Duplicates Finder, Smart Collections, and **On this day** memories.
+- **Privacy-First Map View with Persistent Cache:** Bundled offline world vector map by default, backed by persistent SQLite coordinate/EXIF caching (`catalog.db`) so unchanged files are not rescanned repeatedly; public OpenStreetMap street tiles load only after an explicit per-session opt-in click.
+- **Originals Protected:** Non-overwriting Copy/Move transfers, **Undo move** with catalog link retention, Windows reserved-name/extension validation on rename, Recycle Bin deletion only, reversible Exclusions, and path-redacted diagnostics.
 
-## Build and test
+---
 
-On Windows with .NET 8 SDK and Windows build tools (Visual Studio's Windows application development workload):
+## Frequently Asked Questions
+
+### Why does Windows show a SmartScreen warning?
+Current portable builds are unsigned (`D-2`). Windows Defender SmartScreen shows "Windows protected your PC" on first download. Verify the published SHA-256 checksum if desired, then click **More info -> Run anyway**.
+
+### Can I browse when an external drive is unplugged?
+Yes. Catalog metadata, search, Favorites, multi-word tags, virtual albums, and prepared thumbnails stay available offline. Open **Storage & previews -> Repair missing previews** before disconnecting an archive drive to cache offline previews ahead of time. Opening or editing actual files on disk prompts you cleanly if the drive is offline.
+
+### How do I view photos full-screen, play videos, or preview HEIC/RAW files?
+Luma stays lightweight as a local library organizer: press `Enter` or double-click any photo or video (or click **Open** in the Map) to launch it in your default Windows viewer or player (Photos, VLC, Movies & TV). Camera RAW and HEIC thumbnail decoding rely on Windows Store Imaging/HEVC extensions installed on your PC (`docs/TROUBLESHOOTING.md`).
+
+### Where is Luma's data stored, and how do I uninstall or reset?
+All Luma state lives in `%LOCALAPPDATA%\Luma` (`catalog.db`, `thumbnails\`, `settings.json`, redacted logs). To reset the catalog while leaving originals untouched, use **Settings -> Reset catalog (keep originals)...**. To uninstall, close Luma, delete the extracted program folder, and optionally remove `%LOCALAPPDATA%\Luma`.
+
+---
+
+## Documentation Index
+
+- **Users:** [User Guide](docs/USER_GUIDE.md) | [Troubleshooting](docs/TROUBLESHOOTING.md) | [Known Limits](docs/KNOWN_LIMITS.md) | [Changelog](CHANGELOG.md)
+- **Engineering & Product:** [Product Brief](docs/PRODUCT_BRIEF.md) | [Requirements](docs/REQUIREMENTS.md) | [Decisions Log](docs/DECISIONS.md) | [Architecture](docs/assessment/ARCHITECTURE.md) | [Performance](docs/PERFORMANCE.md) | [Testing Handoff](docs/TESTING_HANDOFF.md) | [Release Checklist](docs/RELEASE_CHECKLIST.md)
+
+## Build and Test from Source
+
+On Windows x64 with .NET 8+ SDK and Windows App SDK build tools:
 
 ```powershell
 dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release
