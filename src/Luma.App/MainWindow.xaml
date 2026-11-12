@@ -161,10 +161,6 @@
      <MenuFlyoutItem Text="Save view as Smart Collection…" Click="SaveCurrentAsSmartCollection"/>
      <MenuFlyoutSeparator/>
      <MenuFlyoutItem Text="Review / Undo last transfer…" Click="ReviewLastTransfer"/>
-     <MenuFlyoutSeparator/>
-     <MenuFlyoutItem Text="Exclude selected folder…" Click="ExcludeFolder"/>
-     <MenuFlyoutItem Text="Exclude selected source…" Click="ExcludeSource"/>
-     <MenuFlyoutItem Text="Exclude selected file type…" Click="ExcludeType"/>
     </MenuFlyout></Button.Flyout></Button>
     <ToggleButton x:Name="InspectorToggle" AutomationProperties.AutomationId="InspectorToggle" Content="Details" ToolTipService.ToolTip="Show file details" Checked="InspectorChanged" Unchecked="InspectorChanged"/>
    </StackPanel>

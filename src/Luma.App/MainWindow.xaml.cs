@@ -369,32 +369,12 @@ public sealed partial class MainWindow : Window
         if (target is not null) ShellFiles.RevealInExplorer(Resolve(target.Item.Media));
         return Task.CompletedTask;
     });
-    private async Task SetClipboardWithRetryAsync(DataPackage data)
-    {
-        for (int attempt = 0; attempt < 4; attempt++)
-        {
-            try
-            {
-                Clipboard.SetContent(data);
-                Clipboard.Flush();
-                return;
-            }
-            catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == unchecked((int)0x800401D0))
-            {
-                if (attempt == 3)
-                    throw new InvalidOperationException("Windows clipboard is currently unavailable or locked by another application (or the Windows lock screen). Unlock Windows or use Copy to folder / Move to folder instead.");
-                await Task.Delay(60 * (attempt + 1));
-            }
-        }
-    }
-
     private async void CopyPath(object sender, RoutedEventArgs e) => await ClipboardAction(async () =>
     {
         var selected=GetSelectedCards().Select(c=>c.Item.Media).ToArray();
         if(selected.Length==0)return;
         var paths=await Task.Run(()=>selected.Select(Resolve).ToArray());
-        var data=new DataPackage(); data.SetText(string.Join(Environment.NewLine,paths));
-        await SetClipboardWithRetryAsync(data);
+        var data=new DataPackage(); data.SetText(string.Join(Environment.NewLine,paths)); Clipboard.SetContent(data); Clipboard.Flush();
         Notify($"Copied {paths.Length:N0} file paths.");
     });
     // Clipboard preparation is read-only and may run while background indexing owns
@@ -416,7 +396,7 @@ public sealed partial class MainWindow : Window
         var data = new DataPackage { RequestedOperation = cut ? DataPackageOperation.Move : DataPackageOperation.Copy };
         data.SetStorageItems(files);
         data.SetData("Luma.FileSelection.v1", JsonSerializer.Serialize(selected.Select(c => c.Item.Media).ToArray()));
-        await SetClipboardWithRetryAsync(data);
+        Clipboard.SetContent(data); Clipboard.Flush();
         pendingCutIds.Clear();
         if(cut) foreach(var card in selected) pendingCutIds.Add(card.Item.Id);
         foreach(var card in cards) card.IsCut=pendingCutIds.Contains(card.Item.Id);
@@ -522,7 +502,7 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(previewList);
 
         var dialog = new ContentDialog { RequestedTheme = Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = "Batch rename files", Content = panel, PrimaryButtonText = $"Rename {selected.Length:N0} files", CloseButtonText = "Cancel" };
-        if (await ShowDialogAsync(dialog) != ContentDialogResult.Primary) return;
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
         int renamedCount = 0, skippedCount = 0, catalogErrorCount = 0;
         for (int i = 0; i < selected.Length; i++)
@@ -572,33 +552,14 @@ public sealed partial class MainWindow : Window
     private async Task<bool> Confirm(string title, string message, string action)
     {
         var dialog = new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = title, Content = message, PrimaryButtonText = action, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
-        return await ShowDialogAsync(dialog) == ContentDialogResult.Primary;
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
-
-    private readonly List<ContentDialog> retainedDialogs = new();
-    private async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog)
-    {
-        try
-        {
-            return await dialog.ShowAsync();
-        }
-        finally
-        {
-            // Keep cleared shells alive so WinUI's UIAffinityReleaseQueue never runs ~ContentDialog/~CPopup
-            // inside a reentrancy-protected tick while UIA or Narrator is attached.
-            dialog.Content = null;
-            dialog.DataContext = null;
-            retainedDialogs.Add(dialog);
-            await Task.Yield();
-        }
-    }
-
     private async Task<string?> Prompt(string title, string description, string initial)
     {
         var input = new TextBox { Text = initial, Header = description, MinWidth = 320 };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(input,"DialogInput");
         var dialog = new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot = Root.XamlRoot, Title = title, Content = input, PrimaryButtonText = "Save", CloseButtonText = "Cancel" };
-        return await ShowDialogAsync(dialog) == ContentDialogResult.Primary ? input.Text.Trim() : null;
+        return await dialog.ShowAsync() == ContentDialogResult.Primary ? input.Text.Trim() : null;
     }
     private void ApplyTheme()
     {
@@ -634,7 +595,7 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(ActionButton("Copy diagnostic info (paths redacted)",()=> { copyDiagnostics=true; dialog.Hide(); }));
         panel.Children.Add(ActionButton("Send feedback / Report a problem…",()=> { sendFeedback=true; dialog.Hide(); }));
         panel.Children.Add(ActionButton("Check for updates on GitHub",()=> { checkUpdates=true; dialog.Hide(); }));
-        var result=await ShowDialogAsync(dialog);
+        var result=await dialog.ShowAsync();
         if(showShortcuts) { await ShowKeyboardShortcutsDialog(); return; }
         if(storage) { await OpenStorage(); return; }
         if(exclusions) { await OpenExclusions(); return; }
@@ -777,7 +738,8 @@ public sealed partial class MainWindow : Window
         var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
         var data = new DataPackage();
         data.SetText(json);
-        await SetClipboardWithRetryAsync(data);
+        Clipboard.SetContent(data);
+        Clipboard.Flush();
         Notify("Diagnostic details copied to clipboard (all paths redacted).");
     }
 
@@ -877,7 +839,7 @@ public sealed partial class MainWindow : Window
             }
         }));
 
-        await ShowDialogAsync(dialog);
+        await dialog.ShowAsync();
         if (pending is not null) await pending();
     }
 
@@ -932,7 +894,7 @@ public sealed partial class MainWindow : Window
             groupList.Children.Add(box);
         }
 
-        await ShowDialogAsync(dialog);
+        await dialog.ShowAsync();
     }
 
     private async Task ResetCatalogAction()
@@ -984,7 +946,7 @@ public sealed partial class MainWindow : Window
             PrimaryButtonText = "Send feedback…",
             CloseButtonText = "Close"
         };
-        if (await ShowDialogAsync(dialog) == ContentDialogResult.Primary)
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
             await OpenFeedbackIssue();
     }
 
