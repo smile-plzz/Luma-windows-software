@@ -3,6 +3,7 @@
  <Grid x:Name="Root" Background="{ThemeResource LumaCanvas}" Loaded="OnLoaded">
   <Grid.Resources>
    <ResourceDictionary>
+    <ThemeShadow x:Name="FloatingPillShadow"/>
     <Style TargetType="Button"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/><Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="10,7"/></Style>
     <Style TargetType="ToggleButton"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/><Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="10,7"/></Style>
     <Style TargetType="ComboBox"><Setter Property="Background" Value="{ThemeResource LumaControl}"/><Setter Property="BorderThickness" Value="0"/><Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="10,7"/></Style>
@@ -16,13 +17,17 @@
    <KeyboardAccelerator Key="Left" Modifiers="Menu" Invoked="BackHistoryShortcut"/><KeyboardAccelerator Key="Home" Invoked="ScrollTopShortcut"/><KeyboardAccelerator Key="End" Invoked="ScrollBottomShortcut"/>
    <KeyboardAccelerator Key="F5" Invoked="RefreshShortcut"/><KeyboardAccelerator Key="Enter" Invoked="OpenShortcut"/><KeyboardAccelerator Key="Escape" Invoked="EscapeShortcut"/><KeyboardAccelerator Key="F1" Invoked="HelpShortcut"/>
   </Grid.KeyboardAccelerators>
+
+  <!-- Main Workspace Grid (Protected by LoadingVeil when busy locking) -->
+  <ContentControl x:Name="WorkspaceHost" IsTabStop="False" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+  <Grid x:Name="WorkspaceRoot">
   <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="224"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
 
   <!-- Collapsible Sidebar -->
-  <Border x:Name="SidebarPanel" Background="{ThemeResource LumaSidebar}">
+  <Border x:Name="SidebarPanel" Background="{ThemeResource LumaSidebar}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="0,0,1,0">
    <Grid><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <StackPanel Padding="14,20,14,16" Spacing="8">
+    <StackPanel Padding="14,12,14,16" Spacing="8">
      <StackPanel Margin="10,0,0,10" Spacing="2">
       <TextBlock Text="Luma" FontSize="24" FontWeight="SemiBold" CharacterSpacing="-30"/>
       <TextBlock Text="A calm home for your moments" FontSize="11" Opacity="0.6"/>
@@ -30,7 +35,10 @@
 
      <!-- Collapsible Views Section -->
      <Button x:Name="ViewsHeaderButton" Click="ToggleViewsSection" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" AutomationProperties.Name="Views section">
-      <TextBlock x:Name="ViewsHeaderLabel" Text="▾ Views" FontSize="12" FontWeight="SemiBold" Opacity="0.65"/>
+      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+       <FontIcon x:Name="ViewsChevron" Glyph="&#xE70D;" FontSize="10" Opacity="0.65"/>
+       <TextBlock x:Name="ViewsHeaderLabel" Text="Views" FontSize="12" FontWeight="SemiBold" Opacity="0.72"/>
+      </StackPanel>
      </Button>
      <StackPanel x:Name="ViewsSection" Spacing="4">
       <ListView x:Name="Navigation" SelectionChanged="NavigationChanged" SelectedIndex="0"><x:String>Library</x:String><x:String>Photos</x:String><x:String>Videos</x:String><x:String>Favorites</x:String><x:String>On this day</x:String></ListView>
@@ -38,7 +46,10 @@
 
      <!-- Collapsible Albums Section -->
      <Button x:Name="AlbumsHeaderButton" Click="ToggleAlbumsSection" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" Margin="0,8,0,0" AutomationProperties.Name="Albums section">
-      <TextBlock x:Name="AlbumsHeaderLabel" Text="▾ Albums" FontSize="12" FontWeight="SemiBold" Opacity="0.65"/>
+      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+       <FontIcon x:Name="AlbumsChevron" Glyph="&#xE70D;" FontSize="10" Opacity="0.65"/>
+       <TextBlock x:Name="AlbumsHeaderLabel" Text="Albums" FontSize="12" FontWeight="SemiBold" Opacity="0.72"/>
+      </StackPanel>
      </Button>
      <StackPanel x:Name="AlbumsSection" Spacing="6">
       <ComboBox x:Name="AlbumsBox" PlaceholderText="Choose an album" HorizontalAlignment="Stretch" SelectionChanged="AlbumChanged" AutomationProperties.Name="Album filter" AllowDrop="True" DragOver="AlbumDragOver" Drop="AlbumDrop" ToolTipService.ToolTip="Browse a virtual album. Drag selected media here to add it." AutomationProperties.HelpText="Browse a virtual album. Drag selected media here to add it."/>
@@ -47,7 +58,10 @@
 
      <!-- Collapsible Smart Collections Section -->
      <Button x:Name="SmartCollectionsHeaderButton" Click="ToggleSmartCollectionsSection" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" Margin="0,8,0,0" AutomationProperties.Name="Smart collections section">
-      <TextBlock x:Name="SmartCollectionsHeaderLabel" Text="▸ Smart collections" FontSize="12" FontWeight="SemiBold" Opacity="0.65"/>
+      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+       <FontIcon x:Name="SmartCollectionsChevron" Glyph="&#xE70D;" FontSize="10" Opacity="0.65"/>
+       <TextBlock x:Name="SmartCollectionsHeaderLabel" Text="Smart collections" FontSize="12" FontWeight="SemiBold" Opacity="0.72"/>
+      </StackPanel>
      </Button>
      <StackPanel x:Name="SmartCollectionsSection" Spacing="6" Visibility="Collapsed">
       <ComboBox x:Name="SmartCollectionsBox" PlaceholderText="Choose a collection" HorizontalAlignment="Stretch" SelectionChanged="SmartCollectionChanged" AutomationProperties.Name="Smart collections" ToolTipService.ToolTip="Apply a saved dynamic filter across your catalog." AutomationProperties.HelpText="Apply a saved dynamic filter across your catalog."/>
@@ -59,7 +73,10 @@
 
      <!-- Collapsible Folders & Drives Section -->
      <Button x:Name="SourcesHeaderButton" Click="ToggleSourcesSection" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" Margin="0,8,0,0" AutomationProperties.Name="Folders and drives section">
-      <TextBlock x:Name="SourcesHeaderLabel" Text="▾ Folders &amp; drives" FontSize="12" FontWeight="SemiBold" Opacity="0.65"/>
+      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+       <FontIcon x:Name="SourcesChevron" Glyph="&#xE70D;" FontSize="10" Opacity="0.65"/>
+       <TextBlock x:Name="SourcesHeaderLabel" Text="Folders &amp; drives" FontSize="12" FontWeight="SemiBold" Opacity="0.72"/>
+      </StackPanel>
      </Button>
      <StackPanel x:Name="SourcesSection" Spacing="6">
       <Button Content="Manage sources" Click="ManageSources" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" ToolTipService.ToolTip="Browse, rename, refresh or remove a registered source. Removal never deletes originals." AutomationProperties.HelpText="Browse, rename, refresh or remove a registered source. Removal never deletes originals."/>
@@ -97,8 +114,12 @@
    <Grid ColumnSpacing="10">
     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-     <Button x:Name="SidebarToggleButton" Content="☰" Click="ToggleSidebar" AutomationProperties.Name="Toggle sidebar" ToolTipService.ToolTip="Show or hide sidebar (Ctrl+B)"/>
-     <Button x:Name="BackHistoryButton" Content="←" Click="NavigateBack" Visibility="Collapsed" AutomationProperties.Name="Back" ToolTipService.ToolTip="Go back to previous view (Alt+Left)"/>
+     <Button x:Name="SidebarToggleButton" Click="ToggleSidebar" AutomationProperties.Name="Toggle sidebar" ToolTipService.ToolTip="Show or hide sidebar (Ctrl+B)">
+      <FontIcon Glyph="&#xE700;" FontSize="14"/>
+     </Button>
+     <Button x:Name="BackHistoryButton" Click="NavigateBack" Visibility="Collapsed" AutomationProperties.Name="Back" ToolTipService.ToolTip="Go back to previous view (Alt+Left)">
+      <FontIcon Glyph="&#xE72B;" FontSize="14"/>
+     </Button>
     </StackPanel>
     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
      <TextBlock x:Name="Heading" Text="Library" FontSize="24" FontWeight="SemiBold" CharacterSpacing="-20" VerticalAlignment="Center"/>
@@ -109,11 +130,14 @@
     </StackPanel>
     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
      <TextBox x:Name="SearchBox" Width="210" PlaceholderText="Search, tag:, ext:, size:>" TextChanged="SearchChanged" KeyDown="SearchBox_KeyDown" VerticalAlignment="Center" AutomationProperties.Name="Search library" ToolTipService.ToolTip="Search filenames, folders, tags, or operators (tag:, ext:, year:, date:, size:>10mb, is:untagged, has:gps)." AutomationProperties.HelpText="Search saved filenames, folders and tags without scanning your drive."/>
-     <Button x:Name="SearchHelperButton" Content="▾" Padding="8,7" AutomationProperties.Name="Search helpers and history" ToolTipService.ToolTip="Recent searches and quick filter operators">
+     <Button x:Name="SearchHelperButton" Padding="8,7" AutomationProperties.Name="Search helpers and history" ToolTipService.ToolTip="Recent searches and quick filter operators">
+      <FontIcon Glyph="&#xE70D;" FontSize="11"/>
       <Button.Flyout><Flyout x:Name="SearchHelperFlyout" Opening="SearchHelperFlyout_Opening"><StackPanel x:Name="SearchHelperPanel" Width="260" Spacing="6"/></Flyout></Button.Flyout>
      </Button>
      <Button Content="Refresh" AutomationProperties.Name="Refresh library"><Button.Flyout><MenuFlyout><MenuFlyoutItem Text="Refresh this source" Click="RefreshSelectedSource" ToolTipService.ToolTip="Discover changed files in the selected connected source. Resume a paused scan when available." AutomationProperties.HelpText="Discover changed files in the selected connected source. Resume a paused scan when available."/><MenuFlyoutItem Text="Refresh all connected sources" Click="RefreshAllSources" ToolTipService.ToolTip="Discover changed files across connected sources. Offline sources are kept." AutomationProperties.HelpText="Discover changed files across connected sources. Offline sources are kept."/><MenuFlyoutSeparator/><MenuFlyoutItem Text="Update drive status only" Click="RefreshDriveStatus" ToolTipService.ToolTip="Check drive availability without scanning for new files or moving your view." AutomationProperties.HelpText="Check drive availability without scanning for new files or moving your view."/><MenuFlyoutItem Text="Manage exclusions…" Click="ManageExclusions" ToolTipService.ToolTip="Review folder, source and extension rules; restore hidden media here." AutomationProperties.HelpText="Review folder, source and extension rules; restore hidden media here."/></MenuFlyout></Button.Flyout></Button>
-     <Button x:Name="HeaderCollapseButton" Content="⌃" Click="ToggleHeader" AutomationProperties.Name="Toggle gallery controls" ToolTipService.ToolTip="Collapse or expand toolbar for a cleaner canvas (Ctrl+H)"/>
+     <Button x:Name="HeaderCollapseButton" Click="ToggleHeader" AutomationProperties.Name="Toggle gallery controls" ToolTipService.ToolTip="Collapse or expand toolbar for a cleaner canvas (Ctrl+H)">
+      <FontIcon x:Name="HeaderCollapseIcon" Glyph="&#xE70E;" FontSize="12"/>
+     </Button>
     </StackPanel>
    </Grid>
 
@@ -121,7 +145,9 @@
    <Border x:Name="GalleryToolbarRow" Grid.Row="1" Background="{ThemeResource LumaControl}" CornerRadius="10" Padding="4" HorizontalAlignment="Left">
    <StackPanel Orientation="Horizontal" Spacing="3">
     <ComboBox x:Name="SortBox" SelectedIndex="4" SelectionChanged="FilterChanged" AutomationProperties.Name="Sort order" MinWidth="138" ToolTipService.ToolTip="Choose ordering. Date taken falls back to date modified when unavailable." AutomationProperties.HelpText="Choose the ordering. Date taken falls back to date modified when unavailable."><x:String>Date modified</x:String><x:String>Oldest modified</x:String><x:String>Name</x:String><x:String>File size</x:String><x:String>Date taken</x:String><x:String>File type</x:String><x:String>Filename</x:String><x:String>Resolution</x:String><x:String>Video duration</x:String></ComboBox>
-    <ToggleButton x:Name="DescendingButton" Content="↓" IsChecked="True" Checked="DirectionChanged" Unchecked="DirectionChanged" AutomationProperties.Name="Descending order"/>
+    <ToggleButton x:Name="DescendingButton" IsChecked="True" Checked="DirectionChanged" Unchecked="DirectionChanged" AutomationProperties.Name="Descending order" ToolTipService.ToolTip="Toggle sort direction">
+     <FontIcon x:Name="DescendingIcon" Glyph="&#xE74B;" FontSize="12"/>
+    </ToggleButton>
     <Button Content="View" AutomationProperties.Name="Gallery view options"><Button.Flyout><Flyout x:Name="ViewFlyout"><ScrollViewer MaxHeight="480"><StackPanel Width="265" Spacing="8">
      <Button Content="Show timeline" Click="ShowTimeline" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/>
      <ComboBox x:Name="LayoutModeBox" AutomationProperties.AutomationId="LayoutModeBox" Header="Gallery layout" SelectedIndex="0" SelectionChanged="LayoutModeChanged" HorizontalAlignment="Stretch" ToolTipService.ToolTip="Switch between uniform 4:3 grid, aspect-accurate natural rows, or Moments with featured Favorites/Stacks.">
@@ -179,7 +205,9 @@
      <ComboBox x:Name="DateJump" PlaceholderText="Choose a month" SelectionChanged="JumpDate" Width="210" AutomationProperties.Name="Browse month" ToolTipService.ToolTip="Date taken when available; otherwise date modified. Counts follow your current filters."/>
      <Button x:Name="OlderMonthButton" Content="Older" Click="OlderMonth" AutomationProperties.Name="Older month" ToolTipService.ToolTip="Show the next older month with matching media." AutomationProperties.HelpText="Show the next older month with matching media."/>
      <CalendarDatePicker x:Name="DayJumpPicker" PlaceholderText="Jump to day" DateChanged="JumpToExactDay" AutomationProperties.Name="Jump to day" ToolTipService.ToolTip="Filter or jump to a specific local calendar day."/>
-     <Button Content="▲" Click="HideMonthBrowser" AutomationProperties.Name="Hide month bar" ToolTipService.ToolTip="Hide month bar to reclaim space"/>
+     <Button Click="HideMonthBrowser" AutomationProperties.Name="Hide month bar" ToolTipService.ToolTip="Hide month bar to reclaim space">
+      <FontIcon Glyph="&#xE70E;" FontSize="11"/>
+     </Button>
     </StackPanel>
     <TextBlock x:Name="SelectionHint" Text="Click to select files · Ctrl+A selects loaded files" Visibility="Collapsed" FontSize="12" Opacity="0.65"/>
     <ScrollViewer x:Name="FilterBar" Visibility="Collapsed" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
@@ -189,12 +217,27 @@
      </StackPanel>
     </ScrollViewer>
     <CalendarDatePicker x:Name="MemoryDate" Visibility="Collapsed" DateChanged="MemoryDateChanged" AutomationProperties.Name="Memory day" PlaceholderText="Choose a day" ToolTipService.ToolTip="Find recorded capture dates from this day in previous years." AutomationProperties.HelpText="Find recorded capture dates from this day in previous years."/>
+    <Border x:Name="ActiveWorkBanner" Visibility="Collapsed" Background="{ThemeResource LumaControl}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="10" Padding="12,8">
+     <StackPanel Spacing="6">
+      <Grid ColumnSpacing="10">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <StackPanel Spacing="1">
+        <TextBlock x:Name="ActiveWorkTitle" FontSize="12.5" FontWeight="SemiBold" Text="Indexing in background"/>
+        <TextBlock x:Name="ActiveWorkDetail" FontSize="11.5" Opacity="0.72" TextTrimming="CharacterEllipsis" Text="Originals stay untouched. Browse freely while Luma updates."/>
+       </StackPanel>
+       <Button Grid.Column="1" Content="Activity" Click="ShowActivity" Padding="8,4" FontSize="11.5"/>
+       <Button x:Name="ActiveWorkPauseButton" Grid.Column="2" Content="Pause" Click="CancelScan" Padding="10,4" FontSize="11.5"/>
+      </Grid>
+      <ProgressBar x:Name="ActiveWorkProgressBar" IsIndeterminate="True" Height="3"/>
+     </StackPanel>
+    </Border>
     <InfoBar AutomationProperties.LiveSetting="Polite" x:Name="Notice" IsOpen="False" IsClosable="True"/>
    </StackPanel>
 
    <!-- Gallery Canvas + Right Details Inspector -->
    <Grid Grid.Row="3">
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <ProgressBar x:Name="GalleryLoadingBar" IsIndeterminate="True" Height="3" VerticalAlignment="Top" Canvas.ZIndex="15" IsHitTestVisible="False" Visibility="Collapsed"/>
 
     <!-- Uniform Grid View (Default) -->
     <GridView x:Name="MediaGrid" AutomationProperties.AutomationId="MediaGrid" SelectionMode="Extended" IsSynchronizedWithCurrentItem="False" IsItemClickEnabled="False" DoubleTapped="GridDoubleTapped" SelectionChanged="SelectionChanged" RightTapped="GridRightTapped" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ContainerContentChanging="TileChanging" Loaded="GalleryLoaded" CanDragItems="True" DragItemsStarting="StartDrag" PointerWheelChanged="GalleryWheel">
@@ -206,18 +249,32 @@
         <!-- Subtle stack backing layer -->
         <Border Visibility="{Binding StackVisibility}" Background="{ThemeResource LumaCardSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="12" Margin="4,-4,-4,4" Opacity="0.7"/>
         <Border Background="{ThemeResource LumaCardSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="12">
-         <Grid CornerRadius="12">
-          <FontIcon Glyph="&#xEB9F;" Visibility="{Binding PlaceholderVisibility}" Opacity="0.2" FontSize="28"/>
-          <Image Source="{Binding Thumbnail}" Stretch="{Binding Fit}"/>
-          <Border Visibility="{Binding StatusVisibility}" Background="#99000000" VerticalAlignment="Bottom" HorizontalAlignment="Left" CornerRadius="6" Padding="6,2" Margin="6">
-           <TextBlock Text="{Binding State}" Foreground="White" FontSize="10"/>
+         <Grid x:Name="CardViewport" CornerRadius="12">
+          <FontIcon Glyph="&#xEB9F;" Visibility="{Binding PlaceholderVisibility}" Opacity="0.22" FontSize="28"/>
+          <Image x:Name="CardImage" Source="{Binding Thumbnail}" Stretch="{Binding Fit}" RenderTransformOrigin="0.5,0.5" ImageOpened="CardImageOpened"/>
+          <Border IsHitTestVisible="False" VerticalAlignment="Bottom" Height="46" Opacity="{Binding BottomScrimOpacity}">
+           <Border.OpacityTransition><ScalarTransition Duration="0:0:0.16"/></Border.OpacityTransition>
+           <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#00000000" Offset="0"/><GradientStop Color="#9E000000" Offset="1"/></LinearGradientBrush></Border.Background>
           </Border>
-          <Button Visibility="{Binding StackVisibility}" Click="CardStackBadgeClick" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="7,3" CornerRadius="10" Background="#B018181B" ToolTipService.ToolTip="Expand or collapse stack">
+          <Border Visibility="{Binding VideoBadgeVisibility}" IsHitTestVisible="False" Background="#BF141418" VerticalAlignment="Bottom" HorizontalAlignment="Left" CornerRadius="6" Padding="6,2" Margin="6">
+           <TextBlock Text="{Binding VideoBadgeText}" Foreground="White" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border Visibility="{Binding OfflineBadgeVisibility}" IsHitTestVisible="False" Background="#BF141418" VerticalAlignment="Bottom" HorizontalAlignment="Right" CornerRadius="6" Padding="6,2" Margin="6">
+           <TextBlock Text="Offline" Foreground="White" FontSize="10"/>
+          </Border>
+          <Border Visibility="{Binding FavoriteBadgeVisibility}" IsHitTestVisible="False" Background="#B018181B" VerticalAlignment="Top" HorizontalAlignment="Left" CornerRadius="8" Padding="6,2" Margin="6">
+           <TextBlock Text="★" Foreground="#FBBF24" FontSize="11"/>
+          </Border>
+          <Button Visibility="{Binding StackVisibility}" Click="CardStackBadgeClick" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="7,3" CornerRadius="10" Background="#B018181B" AutomationProperties.Name="Expand or collapse stack" ToolTipService.ToolTip="Expand or collapse stack">
            <TextBlock Text="{Binding StackBadgeText}" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
           </Button>
-          <Button Visibility="{Binding QuickActionVisibility}" Click="CardQuickFavoriteClick" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" Padding="6,2" CornerRadius="8" Background="#9918181B" ToolTipService.ToolTip="Toggle favorite">
+          <Button Opacity="{Binding QuickActionOpacity}" IsHitTestVisible="{Binding IsHovered}" Click="CardQuickFavoriteClick" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" Padding="6,2" CornerRadius="8" Background="#C818181B" AutomationProperties.Name="Toggle favorite" ToolTipService.ToolTip="Toggle favorite">
+           <Button.OpacityTransition><ScalarTransition Duration="0:0:0.14"/></Button.OpacityTransition>
            <TextBlock Text="{Binding FavoriteGlyph}" Foreground="White" FontSize="12"/>
           </Button>
+          <Border IsHitTestVisible="False" BorderBrush="{ThemeResource LumaCardHoverBorder}" BorderThickness="1.5" CornerRadius="12" Opacity="{Binding HoverBorderOpacity}">
+           <Border.OpacityTransition><ScalarTransition Duration="0:0:0.14"/></Border.OpacityTransition>
+          </Border>
          </Grid>
         </Border>
        </Grid>
@@ -237,20 +294,37 @@
        <ItemsControl ItemsSource="{Binding Items}">
         <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="8"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
         <ItemsControl.ItemTemplate><DataTemplate>
-         <StackPanel Width="{Binding AdaptiveWidth}" Spacing="4" Opacity="{Binding CutOpacity}" ToolTipService.ToolTip="{Binding TooltipText}" Tapped="AdaptiveCardTapped" DoubleTapped="AdaptiveCardDoubleTapped" RightTapped="AdaptiveCardRightTapped" PointerEntered="CardPointerEntered" PointerExited="CardPointerExited">
+         <StackPanel Width="{Binding AdaptiveWidth}" Spacing="4" Opacity="{Binding CutOpacity}" IsTabStop="True" UseSystemFocusVisuals="True" AutomationProperties.Name="{Binding Name}" ToolTipService.ToolTip="{Binding TooltipText}" Tapped="AdaptiveCardTapped" DoubleTapped="AdaptiveCardDoubleTapped" RightTapped="AdaptiveCardRightTapped" KeyDown="AdaptiveCardKeyDown" PointerEntered="CardPointerEntered" PointerExited="CardPointerExited">
           <Border Height="{Binding AdaptiveHeight}" Background="{ThemeResource LumaCardSurface}" BorderBrush="{ThemeResource SystemControlHighlightAccentBrush}" BorderThickness="{Binding AdaptiveSelectionThickness}" CornerRadius="12">
-           <Grid CornerRadius="10">
-            <FontIcon Glyph="&#xEB9F;" Visibility="{Binding PlaceholderVisibility}" Opacity="0.2" FontSize="28"/>
-            <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"/>
-            <Border Visibility="{Binding StatusVisibility}" Background="#99000000" VerticalAlignment="Bottom" HorizontalAlignment="Left" CornerRadius="6" Padding="6,2" Margin="6">
-             <TextBlock Text="{Binding State}" Foreground="White" FontSize="10"/>
+           <Grid x:Name="CardViewport" CornerRadius="10">
+            <FontIcon Glyph="&#xEB9F;" Visibility="{Binding PlaceholderVisibility}" Opacity="0.22" FontSize="28"/>
+            <Image x:Name="CardImage" Source="{Binding Thumbnail}" Stretch="UniformToFill" RenderTransformOrigin="0.5,0.5" ImageOpened="CardImageOpened"/>
+            <Border IsHitTestVisible="False" VerticalAlignment="Bottom" Height="44" Opacity="{Binding BottomScrimOpacity}">
+             <Border.OpacityTransition><ScalarTransition Duration="0:0:0.16"/></Border.OpacityTransition>
+             <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#00000000" Offset="0"/><GradientStop Color="#9E000000" Offset="1"/></LinearGradientBrush></Border.Background>
             </Border>
-            <Button Visibility="{Binding StackVisibility}" Click="CardStackBadgeClick" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="7,3" CornerRadius="10" Background="#B018181B">
+            <Border Visibility="{Binding VideoBadgeVisibility}" IsHitTestVisible="False" Background="#BF141418" VerticalAlignment="Bottom" HorizontalAlignment="Left" CornerRadius="6" Padding="6,2" Margin="6">
+             <TextBlock Text="{Binding VideoBadgeText}" Foreground="White" FontSize="10" FontWeight="SemiBold"/>
+            </Border>
+            <Border Visibility="{Binding OfflineBadgeVisibility}" IsHitTestVisible="False" Background="#BF141418" VerticalAlignment="Bottom" HorizontalAlignment="Right" CornerRadius="6" Padding="6,2" Margin="6">
+             <TextBlock Text="Offline" Foreground="White" FontSize="10"/>
+            </Border>
+            <Border Visibility="{Binding FavoriteBadgeVisibility}" IsHitTestVisible="False" Background="#B018181B" VerticalAlignment="Top" HorizontalAlignment="Left" CornerRadius="8" Padding="6,2" Margin="6">
+             <TextBlock Text="★" Foreground="#FBBF24" FontSize="11"/>
+            </Border>
+            <Border Visibility="{Binding AdaptiveSelectionVisibility}" IsHitTestVisible="False" Background="{ThemeResource SystemControlHighlightAccentBrush}" VerticalAlignment="Bottom" HorizontalAlignment="Right" CornerRadius="8" Padding="6,2" Margin="6">
+             <TextBlock Text="✓" Foreground="White" FontSize="10" FontWeight="Bold"/>
+            </Border>
+            <Button Visibility="{Binding StackVisibility}" Click="CardStackBadgeClick" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="7,3" CornerRadius="10" Background="#B018181B" AutomationProperties.Name="Expand or collapse stack" ToolTipService.ToolTip="Expand or collapse stack">
              <TextBlock Text="{Binding StackBadgeText}" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
             </Button>
-            <Button Visibility="{Binding QuickActionVisibility}" Click="CardQuickFavoriteClick" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" Padding="6,2" CornerRadius="8" Background="#9918181B">
+            <Button Opacity="{Binding QuickActionOpacity}" IsHitTestVisible="{Binding IsHovered}" Click="CardQuickFavoriteClick" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" Padding="6,2" CornerRadius="8" Background="#C818181B" AutomationProperties.Name="Toggle favorite" ToolTipService.ToolTip="Toggle favorite">
+             <Button.OpacityTransition><ScalarTransition Duration="0:0:0.14"/></Button.OpacityTransition>
              <TextBlock Text="{Binding FavoriteGlyph}" Foreground="White" FontSize="12"/>
             </Button>
+            <Border IsHitTestVisible="False" BorderBrush="{ThemeResource LumaCardHoverBorder}" BorderThickness="1.5" CornerRadius="10" Opacity="{Binding HoverBorderOpacity}">
+             <Border.OpacityTransition><ScalarTransition Duration="0:0:0.14"/></Border.OpacityTransition>
+            </Border>
            </Grid>
           </Border>
           <TextBlock Text="{Binding Name}" Visibility="{Binding Labels}" FontSize="12" TextTrimming="CharacterEllipsis"/>
@@ -262,52 +336,73 @@
      </DataTemplate></ListView.ItemTemplate>
     </ListView>
 
+    <!-- Gallery Query Transition Guard (prevents stale-grid clicks on slow filter transitions) -->
+    <Grid x:Name="GalleryResetVeil" Visibility="Collapsed" IsHitTestVisible="True" Background="{ThemeResource LumaModalScrim}" Canvas.ZIndex="14">
+     <Border HorizontalAlignment="Center" VerticalAlignment="Center" Background="{ThemeResource LumaElevatedSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="12" Padding="18,12" Shadow="{StaticResource FloatingPillShadow}" Translation="0,0,16">
+      <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+       <ProgressRing x:Name="GalleryResetRing" Width="18" Height="18" IsActive="False"/>
+       <TextBlock Text="Updating gallery view…" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+      </StackPanel>
+     </Border>
+    </Grid>
+
     <!-- Empty State -->
-    <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="440" AllowDrop="True" DragOver="EmptyStateDragOver" Drop="EmptyStateDrop">
-     <FontIcon x:Name="EmptyIcon" Glyph="&#xEB9F;" FontSize="48" Opacity="0.35" HorizontalAlignment="Center"/>
-     <TextBlock x:Name="EmptyTitle" Text="A little room for memories" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"/>
-     <TextBlock x:Name="EmptyText" Text="Add a folder or drive to begin. Originals stay untouched." TextWrapping="Wrap" TextAlignment="Center" Opacity="0.65" FontSize="13" MaxWidth="380"/>
-     <StackPanel x:Name="EmptyActions" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
-      <Button x:Name="EmptyAddButton" Content="Add folder or drive" Click="AddSource" Visibility="Collapsed"/>
-      <Button x:Name="EmptyResetButton" Content="Reset all filters" Click="ResetFiltersAction" Visibility="Collapsed"/>
-      <Button x:Name="EmptyClearSearchButton" Content="Clear search" Click="ClearSearchAction" Visibility="Collapsed"/>
-      <Button x:Name="EmptyExclusionsButton" Content="Manage exclusions…" Click="ManageExclusions" Visibility="Collapsed"/>
-      <Button x:Name="EmptyStoreCodecButton" Content="Install Codec" Click="InstallCodecAction" Visibility="Collapsed"/>
+    <Border x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="460" Padding="32,26" CornerRadius="16" Background="{ThemeResource LumaCardSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" AllowDrop="True" DragOver="EmptyStateDragOver" Drop="EmptyStateDrop">
+     <StackPanel Spacing="12">
+      <FontIcon x:Name="EmptyIcon" Glyph="&#xEB9F;" FontSize="46" Opacity="0.4" HorizontalAlignment="Center"/>
+      <TextBlock x:Name="EmptyTitle" Text="A little room for memories" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"/>
+      <TextBlock x:Name="EmptyText" Text="Add a folder or drive to begin. Originals stay untouched." TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7" FontSize="13" MaxWidth="380" HorizontalAlignment="Center"/>
+      <StackPanel x:Name="EmptyActions" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,4,0,0">
+       <Button x:Name="EmptyAddButton" Content="Add folder or drive" Click="AddSource" Style="{StaticResource AccentButtonStyle}" Visibility="Collapsed"/>
+       <Button x:Name="EmptyResetButton" Content="Reset all filters" Click="ResetFiltersAction" Visibility="Collapsed"/>
+       <Button x:Name="EmptyClearSearchButton" Content="Clear search" Click="ClearSearchAction" Visibility="Collapsed"/>
+       <Button x:Name="EmptyExclusionsButton" Content="Manage exclusions…" Click="ManageExclusions" Visibility="Collapsed"/>
+       <Button x:Name="EmptyStoreCodecButton" Content="Install Codec" Click="InstallCodecAction" Visibility="Collapsed"/>
+      </StackPanel>
+      <TextBlock Text="Tip: You can also drop any folder right onto this card." FontSize="11" Opacity="0.55" HorizontalAlignment="Center" TextAlignment="Center"/>
      </StackPanel>
-    </StackPanel>
+    </Border>
 
     <!-- Non-interactive Loading More Pill -->
-    <Border x:Name="LoadMorePill" IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,14" Padding="12,6" CornerRadius="999" Background="{ThemeResource LumaSidebar}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" Visibility="Collapsed">
+    <Border x:Name="LoadMorePill" IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,14" Padding="14,7" CornerRadius="999" Background="{ThemeResource LumaElevatedSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" Shadow="{StaticResource FloatingPillShadow}" Translation="0,0,16" Visibility="Collapsed">
      <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
       <ProgressRing x:Name="LoadMoreRing" Width="14" Height="14" IsActive="False"/>
-      <TextBlock Text="Loading more moments..." FontSize="12" Opacity="0.85"/>
+      <TextBlock Text="Loading more moments..." FontSize="12" Opacity="0.88"/>
      </StackPanel>
     </Border>
 
     <!-- Collapsible Right Details Inspector -->
-    <Border x:Name="Inspector" Grid.Column="1" Width="244" Padding="14" Margin="10,0,0,0" Visibility="Collapsed" Background="{ThemeResource LumaSidebar}" CornerRadius="14"><ScrollViewer><StackPanel Spacing="10">
+    <Border x:Name="Inspector" Grid.Column="1" Width="252" Padding="14" Margin="10,0,0,0" Visibility="Collapsed" Background="{ThemeResource LumaSidebar}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="14" Shadow="{StaticResource FloatingPillShadow}" Translation="0,0,16"><ScrollViewer><StackPanel Spacing="10">
      <TextBlock Text="File details" FontSize="17" FontWeight="SemiBold"/>
-     <TextBlock x:Name="SelectionText" Text="Select media to inspect" TextWrapping="Wrap" FontSize="12" IsTextSelectionEnabled="True"/>
-     <Button x:Name="InspectorMapButton" Content="Show on map" Click="ShowSelectedOnMap" Visibility="Collapsed" HorizontalAlignment="Stretch"/>
-     <Button x:Name="InspectorPinLocationButton" Content="Pin location…" Click="PinSelectedOnMap" Visibility="Collapsed" HorizontalAlignment="Stretch" ToolTipService.ToolTip="Assign catalog-only map coordinates without modifying original files."/>
+     <StackPanel x:Name="InspectorQuickActions" Orientation="Horizontal" Spacing="6" Visibility="Collapsed">
+      <Button Content="Open" Click="OpenSelected" Background="{ThemeResource LumaControl}" Padding="10,5" FontSize="12" ToolTipService.ToolTip="Open in your default Windows app (Enter)"/>
+      <Button Content="Explorer" Click="RevealSelected" Background="{ThemeResource LumaControl}" Padding="10,5" FontSize="12" ToolTipService.ToolTip="Show file in Windows Explorer"/>
+     </StackPanel>
+     <Border Background="{ThemeResource LumaCardSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="10" Padding="10">
+      <TextBlock x:Name="SelectionText" Text="Select media to inspect" TextWrapping="Wrap" FontSize="12" LineHeight="18" IsTextSelectionEnabled="True"/>
+     </Border>
+     <Button x:Name="InspectorMapButton" Content="Show on map" Click="ShowSelectedOnMap" Visibility="Collapsed" Background="{ThemeResource LumaControl}" HorizontalAlignment="Stretch"/>
+     <Button x:Name="InspectorPinLocationButton" Content="Pin location…" Click="PinSelectedOnMap" Visibility="Collapsed" Background="{ThemeResource LumaControl}" HorizontalAlignment="Stretch" ToolTipService.ToolTip="Assign catalog-only map coordinates without modifying original files."/>
      <TextBox x:Name="TagsBox" Header="Tags for selected files" PlaceholderText="Comma-separated tags" MaxLength="1000" ToolTipService.ToolTip="Enter comma-separated tags. Saving replaces tags for the selected files." AutomationProperties.HelpText="Enter comma-separated tags. Saving replaces tags for the selected files."/>
-     <Button Content="Save tags" Click="SaveTags" ToolTipService.ToolTip="Save these tags for selected files. Multiple selections replace their existing tags after confirmation." AutomationProperties.HelpText="Save these tags for selected files. Multiple selections replace their existing tags after confirmation."/>
-     <Button Content="Add to album…" Click="AddToAlbum" ToolTipService.ToolTip="Add selected media to a virtual album without moving originals." AutomationProperties.HelpText="Add selected media to a virtual album without moving originals."/>
+     <Button Content="Save tags" Click="SaveTags" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" ToolTipService.ToolTip="Save these tags for selected files. Multiple selections replace their existing tags after confirmation." AutomationProperties.HelpText="Save these tags for selected files. Multiple selections replace their existing tags after confirmation."/>
+     <Button Content="Add to album…" Click="AddToAlbum" Background="{ThemeResource LumaControl}" HorizontalAlignment="Stretch" ToolTipService.ToolTip="Add selected media to a virtual album without moving originals." AutomationProperties.HelpText="Add selected media to a virtual album without moving originals."/>
     </StackPanel></ScrollViewer></Border>
    </Grid>
 
    <!-- Action-Triggered Selection Ribbon -->
-   <Border x:Name="SelectionBar" Grid.Row="4" Background="{ThemeResource LumaControl}" CornerRadius="10" Padding="8,4" HorizontalAlignment="Left" Visibility="Collapsed">
+   <Border x:Name="SelectionBar" Grid.Row="4" Background="{ThemeResource LumaElevatedSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="12" Padding="10,5" HorizontalAlignment="Left" Shadow="{StaticResource FloatingPillShadow}" Translation="0,0,16" Visibility="Collapsed">
     <StackPanel Orientation="Horizontal" Spacing="4">
-     <TextBlock x:Name="SelectionCount" VerticalAlignment="Center" Margin="4,0,6,0" FontWeight="Medium"/>
+     <TextBlock x:Name="SelectionCount" VerticalAlignment="Center" Margin="4,0,6,0" FontWeight="SemiBold"/>
      <Button Content="Move to…" AutomationProperties.Name="Move to recent or folder">
       <Button.Flyout><MenuFlyout x:Name="QuickMoveMenu" Opening="QuickMoveMenu_Opening"/></Button.Flyout>
      </Button>
      <Button Content="Copy to…" Click="CopyToFolder" ToolTipService.ToolTip="Copy selected originals into a folder"/>
+     <Button Content="Tags…" Click="FocusInspectorTags" ToolTipService.ToolTip="Open details and edit tags for selected items"/>
      <Button Content="Copy" Click="CopySelected" ToolTipService.ToolTip="Copy selected original files to the Windows clipboard (Ctrl+C). Reconnect offline sources first." AutomationProperties.HelpText="Copy selected original files to the Windows clipboard (Ctrl+C). Reconnect offline sources first."/>
      <Button Content="Cut" Click="CutSelected" ToolTipService.ToolTip="Prepare selected originals for moving (Ctrl+X). Files move only when pasted." AutomationProperties.HelpText="Prepare selected originals for moving (Ctrl+X). Files move only when pasted."/>
-     <Button Content="More" AutomationProperties.Name="Selection actions"><Button.Flyout><MenuFlyout><MenuFlyoutItem Text="Move to folder…" Click="MoveToFolder" ToolTipService.ToolTip="Move selected originals into another folder. Review the operation result for skipped files." AutomationProperties.HelpText="Move selected originals into another folder. Review the operation result for skipped files."/><MenuFlyoutItem Text="Rename / Batch rename…" Click="RenameSelected"/><MenuFlyoutItem Text="Add to album…" Click="AddToAlbum" ToolTipService.ToolTip="Add selected media to a virtual album without moving originals." AutomationProperties.HelpText="Add selected media to a virtual album without moving originals."/><MenuFlyoutItem Text="Copy paths" Click="CopyPath" ToolTipService.ToolTip="Copy full paths of selected originals as text." AutomationProperties.HelpText="Copy full paths of selected originals as text."/><MenuFlyoutItem Text="Select loaded files" Click="SelectLoaded" ToolTipService.ToolTip="Select only the items already loaded in the gallery." AutomationProperties.HelpText="Select only the items already loaded in the gallery."/><MenuFlyoutItem Text="Select all matching results" Click="SelectAllMatching" ToolTipService.ToolTip="Select every result in this filtered view, including unloaded items. Large selections use more memory." AutomationProperties.HelpText="Select every result in this filtered view, including unloaded items. Large selections use more memory."/><MenuFlyoutItem Text="Clear selection" Click="ClearSelection" ToolTipService.ToolTip="Deselect all files without changing filters." AutomationProperties.HelpText="Deselect all files without changing filters."/><MenuFlyoutItem Text="Paste into folder…" Click="PasteSelected" ToolTipService.ToolTip="Choose a destination and paste copied or cut originals (Ctrl+V). Existing filenames are skipped." AutomationProperties.HelpText="Choose a destination and paste copied or cut originals (Ctrl+V). Existing filenames are skipped."/></MenuFlyout></Button.Flyout></Button>
      <Button x:Name="FavoriteButton" Content="☆ Favorite" Click="ToggleFavorite" ToolTipService.ToolTip="Add or remove favorites for all selected items." AutomationProperties.HelpText="Add or remove favorites for all selected items."/>
+     <Button Content="Delete" Click="DeleteSelected" ToolTipService.ToolTip="Send selected originals to Windows Recycle Bin after confirmation (Del)" AutomationProperties.HelpText="Send selected originals to Windows Recycle Bin after confirmation (Del)"/>
+     <Button Content="More" AutomationProperties.Name="Selection actions"><Button.Flyout><MenuFlyout><MenuFlyoutItem Text="Move to folder…" Click="MoveToFolder" ToolTipService.ToolTip="Move selected originals into another folder. Review the operation result for skipped files." AutomationProperties.HelpText="Move selected originals into another folder. Review the operation result for skipped files."/><MenuFlyoutItem Text="Rename / Batch rename…" Click="RenameSelected"/><MenuFlyoutItem Text="Add to album…" Click="AddToAlbum" ToolTipService.ToolTip="Add selected media to a virtual album without moving originals." AutomationProperties.HelpText="Add selected media to a virtual album without moving originals."/><MenuFlyoutItem Text="Copy paths" Click="CopyPath" ToolTipService.ToolTip="Copy full paths of selected originals as text." AutomationProperties.HelpText="Copy full paths of selected originals as text."/><MenuFlyoutItem Text="Select loaded files" Click="SelectLoaded" ToolTipService.ToolTip="Select only the items already loaded in the gallery." AutomationProperties.HelpText="Select only the items already loaded in the gallery."/><MenuFlyoutItem Text="Select all matching results" Click="SelectAllMatching" ToolTipService.ToolTip="Select every result in this filtered view, including unloaded items. Large selections use more memory." AutomationProperties.HelpText="Select every result in this filtered view, including unloaded items. Large selections use more memory."/><MenuFlyoutItem Text="Clear selection" Click="ClearSelection" ToolTipService.ToolTip="Deselect all files without changing filters." AutomationProperties.HelpText="Deselect all files without changing filters."/><MenuFlyoutItem Text="Paste into folder…" Click="PasteSelected" ToolTipService.ToolTip="Choose a destination and paste copied or cut originals (Ctrl+V). Existing filenames are skipped." AutomationProperties.HelpText="Choose a destination and paste copied or cut originals (Ctrl+V). Existing filenames are skipped."/></MenuFlyout></Button.Flyout></Button>
     </StackPanel>
    </Border>
 
@@ -340,49 +435,51 @@
      </Border>
     </StackPanel>
 
-    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-     <Button x:Name="MapActiveFilterChip" Content="Filters active ✕" Click="MapResetFiltersClicked" Visibility="Collapsed" Background="{ThemeResource LumaControl}" CornerRadius="999" Padding="10,4" FontSize="11" ToolTipService.ToolTip="Clear active map filters"/>
-     <Border Background="{ThemeResource LumaControl}" CornerRadius="9" Padding="3" VerticalAlignment="Center">
-      <StackPanel Orientation="Horizontal" Spacing="2">
-       <ToggleButton x:Name="MapViewHeatBtn" Content="Heat" IsChecked="True" Click="MapViewModeClicked" Padding="9,4" FontSize="12" ToolTipService.ToolTip="Photo density heatmap"/>
-       <ToggleButton x:Name="MapViewClustersBtn" Content="Clusters" Click="MapViewModeClicked" Padding="9,4" FontSize="12" ToolTipService.ToolTip="Grouped photo bubbles"/>
-       <ToggleButton x:Name="MapViewPlacesBtn" Content="Places" Click="MapViewModeClicked" Padding="9,4" FontSize="12" ToolTipService.ToolTip="Visited places overview"/>
-       <ToggleButton x:Name="MapViewPinsBtn" Content="Pins" Click="MapViewModeClicked" Padding="9,4" FontSize="12" ToolTipService.ToolTip="Individual capture pins"/>
-       <ToggleButton x:Name="MapViewTrailBtn" Content="Trail" Click="MapViewModeClicked" Padding="9,4" FontSize="12" ToolTipService.ToolTip="Chronological travel path"/>
-      </StackPanel>
-     </Border>
-     <Button x:Name="MapFiltersButton" Content="Filters" AutomationProperties.Name="Map filters" Background="{ThemeResource LumaControl}">
-      <Button.Flyout>
-       <Flyout x:Name="MapFiltersFlyout">
-        <StackPanel Width="280" Spacing="10">
-         <TextBlock Text="Filter map" FontWeight="SemiBold" FontSize="14"/>
-         <Border Background="{ThemeResource LumaControl}" CornerRadius="8" Padding="3">
-          <Grid ColumnSpacing="2">
-           <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-           <ToggleButton x:Name="MapKindAll" Content="All" IsChecked="True" Click="MapKindFilterClicked" HorizontalAlignment="Stretch" Padding="6,4" FontSize="12"/>
-           <ToggleButton x:Name="MapKindPhotos" Grid.Column="1" Content="Photos" Click="MapKindFilterClicked" HorizontalAlignment="Stretch" Padding="6,4" FontSize="12"/>
-           <ToggleButton x:Name="MapKindVideos" Grid.Column="2" Content="Videos" Click="MapKindFilterClicked" HorizontalAlignment="Stretch" Padding="6,4" FontSize="12"/>
-          </Grid>
-         </Border>
-         <ToggleButton x:Name="MapFavFilter" Content="★ Favorites only" Checked="MapFilterChanged" Unchecked="MapFilterChanged" Background="{ThemeResource LumaControl}" HorizontalAlignment="Stretch" Padding="8,5" FontSize="12"/>
-         <ComboBox x:Name="MapYearFilter" Header="Year" PlaceholderText="All years" HorizontalAlignment="Stretch" SelectionChanged="MapComboFilterChanged" FontSize="12"/>
-         <ComboBox x:Name="MapSourceFilter" Header="Source" PlaceholderText="All sources" HorizontalAlignment="Stretch" SelectionChanged="MapComboFilterChanged" FontSize="12"/>
-         <ComboBox x:Name="MapOriginFilter" Header="Pin source" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="MapComboFilterChanged" FontSize="12">
-          <x:String>All pins</x:String><x:String>EXIF &amp; Video</x:String><x:String>Manual pins</x:String>
-         </ComboBox>
-         <TextBox x:Name="MapSearchBox" Header="Search place, camera, or file" PlaceholderText="Tokyo, Pixel, DSC..." TextChanged="MapSearchTextChanged" FontSize="12"/>
-         <CheckBox x:Name="MapMatchGalleryToggle" Content="Match current gallery filters" Checked="MapFilterChanged" Unchecked="MapFilterChanged" FontSize="12"/>
-         <Button x:Name="MapResetFiltersBtn" Content="Clear map filters" Click="MapResetFiltersClicked" HorizontalAlignment="Stretch"/>
-        </StackPanel>
-       </Flyout>
-      </Button.Flyout>
-     </Button>
-     <ToggleButton x:Name="MapDrawerToggle" Content="Locations" IsChecked="False" Checked="MapChromeToggled" Unchecked="MapChromeToggled" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Show or hide visited places, clusters, and unlocated media."/>
-     <ToggleButton x:Name="MapStripToggle" Content="Filmstrip" IsChecked="False" Checked="MapChromeToggled" Unchecked="MapChromeToggled" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Show or hide photos visible in the current map view."/>
-     <ToggleButton x:Name="MapPinModeToggle" Content="Pin mode" Checked="MapPinModeToggled" Unchecked="MapPinModeToggled" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Click anywhere on the map to assign catalog-only coordinates."/>
-     <Button x:Name="MapScanGpsButton" Content="Scan GPS" Click="TriggerMapBackfill" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Check connected sources for uncached GPS, video ISO-6709, or XMP location tags. Checked files remain cached."/>
-     <Button x:Name="MapToggleModeButton" Content="Load online map (this session)" Click="ToggleMapModeClicked" Background="{ThemeResource LumaControl}" FontWeight="SemiBold"/>
-    </StackPanel>
+    <ScrollViewer Grid.Column="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+      <Button x:Name="MapActiveFilterChip" Content="Filters active ✕" Click="MapResetFiltersClicked" Visibility="Collapsed" Background="{ThemeResource LumaControl}" CornerRadius="999" Padding="10,4" FontSize="11" ToolTipService.ToolTip="Clear active map filters"/>
+      <Border Background="{ThemeResource LumaControl}" CornerRadius="9" Padding="3" VerticalAlignment="Center">
+       <StackPanel Orientation="Horizontal" Spacing="2">
+        <ToggleButton x:Name="MapViewHeatBtn" Content="Heat" IsChecked="True" Click="MapViewModeClicked" Padding="8,4" FontSize="12" ToolTipService.ToolTip="Photo density heatmap"/>
+        <ToggleButton x:Name="MapViewClustersBtn" Content="Clusters" Click="MapViewModeClicked" Padding="8,4" FontSize="12" ToolTipService.ToolTip="Grouped photo bubbles"/>
+        <ToggleButton x:Name="MapViewPlacesBtn" Content="Places" Click="MapViewModeClicked" Padding="8,4" FontSize="12" ToolTipService.ToolTip="Visited places overview"/>
+        <ToggleButton x:Name="MapViewPinsBtn" Content="Pins" Click="MapViewModeClicked" Padding="8,4" FontSize="12" ToolTipService.ToolTip="Individual capture pins"/>
+        <ToggleButton x:Name="MapViewTrailBtn" Content="Trail" Click="MapViewModeClicked" Padding="8,4" FontSize="12" ToolTipService.ToolTip="Chronological travel path"/>
+       </StackPanel>
+      </Border>
+      <Button x:Name="MapFiltersButton" Content="Filters" AutomationProperties.Name="Map filters" Background="{ThemeResource LumaControl}">
+       <Button.Flyout>
+        <Flyout x:Name="MapFiltersFlyout">
+         <StackPanel Width="280" Spacing="10">
+          <TextBlock Text="Filter map" FontWeight="SemiBold" FontSize="14"/>
+          <Border Background="{ThemeResource LumaControl}" CornerRadius="8" Padding="3">
+           <Grid ColumnSpacing="2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <ToggleButton x:Name="MapKindAll" Content="All" IsChecked="True" Click="MapKindFilterClicked" HorizontalAlignment="Stretch" Padding="6,4" FontSize="12"/>
+            <ToggleButton x:Name="MapKindPhotos" Grid.Column="1" Content="Photos" Click="MapKindFilterClicked" HorizontalAlignment="Stretch" Padding="6,4" FontSize="12"/>
+            <ToggleButton x:Name="MapKindVideos" Grid.Column="2" Content="Videos" Click="MapKindFilterClicked" HorizontalAlignment="Stretch" Padding="6,4" FontSize="12"/>
+           </Grid>
+          </Border>
+          <ToggleButton x:Name="MapFavFilter" Content="★ Favorites only" Checked="MapFilterChanged" Unchecked="MapFilterChanged" Background="{ThemeResource LumaControl}" HorizontalAlignment="Stretch" Padding="8,5" FontSize="12"/>
+          <ComboBox x:Name="MapYearFilter" Header="Year" PlaceholderText="All years" HorizontalAlignment="Stretch" SelectionChanged="MapComboFilterChanged" FontSize="12"/>
+          <ComboBox x:Name="MapSourceFilter" Header="Source" PlaceholderText="All sources" HorizontalAlignment="Stretch" SelectionChanged="MapComboFilterChanged" FontSize="12"/>
+          <ComboBox x:Name="MapOriginFilter" Header="Pin source" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="MapComboFilterChanged" FontSize="12">
+           <x:String>All pins</x:String><x:String>EXIF &amp; Video</x:String><x:String>Manual pins</x:String>
+          </ComboBox>
+          <TextBox x:Name="MapSearchBox" Header="Search place, camera, or file" PlaceholderText="Tokyo, Pixel, DSC..." TextChanged="MapSearchTextChanged" FontSize="12"/>
+          <CheckBox x:Name="MapMatchGalleryToggle" Content="Match current gallery filters" Checked="MapFilterChanged" Unchecked="MapFilterChanged" FontSize="12"/>
+          <Button x:Name="MapResetFiltersBtn" Content="Clear map filters" Click="MapResetFiltersClicked" HorizontalAlignment="Stretch"/>
+         </StackPanel>
+        </Flyout>
+       </Button.Flyout>
+      </Button>
+      <ToggleButton x:Name="MapDrawerToggle" Content="Locations" IsChecked="False" Checked="MapChromeToggled" Unchecked="MapChromeToggled" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Show or hide visited places, clusters, and unlocated media."/>
+      <ToggleButton x:Name="MapStripToggle" Content="Filmstrip" IsChecked="False" Checked="MapChromeToggled" Unchecked="MapChromeToggled" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Show or hide photos visible in the current map view."/>
+      <ToggleButton x:Name="MapPinModeToggle" Content="Pin mode" Checked="MapPinModeToggled" Unchecked="MapPinModeToggled" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Click anywhere on the map to assign catalog-only coordinates."/>
+      <Button x:Name="MapScanGpsButton" Content="Scan GPS" Click="TriggerMapBackfill" Background="{ThemeResource LumaControl}" ToolTipService.ToolTip="Check connected sources for uncached GPS, video ISO-6709, or XMP location tags. Checked files remain cached."/>
+      <Button x:Name="MapToggleModeButton" Content="Load online map (this session)" Click="ToggleMapModeClicked" Style="{StaticResource AccentButtonStyle}" ToolTipService.ToolTip="Toggle between local offline coordinate canvas and opt-in OpenStreetMap tiles for this session."/>
+     </StackPanel>
+    </ScrollViewer>
    </Grid>
 
    <!-- Full-Bleed Map Canvas (Offline / Online) + Collapsible Visited Places Drawer -->
@@ -390,64 +487,76 @@
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
     <InfoBar x:Name="MapNotice" Grid.ColumnSpan="2" Canvas.ZIndex="20" IsOpen="False" IsClosable="True" HorizontalAlignment="Center" VerticalAlignment="Top" MaxWidth="760" Margin="16,12,16,0"/>
 
-    <!-- Offline Interactive Map + Slim Floating Controls + Optional One-Time Privacy Pill -->
+    <!-- Offline Interactive Map + Slim Floating Controls + Non-Overlapping Bottom Chrome -->
     <Grid x:Name="MapOfflinePanel">
      <Canvas x:Name="OfflineMapCanvas" Background="{ThemeResource LumaSidebar}" SizeChanged="OfflineCanvas_SizeChanged" PointerPressed="OfflineCanvas_PointerPressed" PointerMoved="OfflineCanvas_PointerMoved" PointerReleased="OfflineCanvas_PointerReleased" PointerWheelChanged="OfflineCanvas_PointerWheelChanged"/>
-     <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12" Padding="4" Background="{ThemeResource LumaCanvas}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="10">
+     <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12" Padding="4" Background="{ThemeResource LumaElevatedSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="10" Shadow="{StaticResource FloatingPillShadow}" Translation="0,0,16">
       <Button Content="+" Click="OfflineZoomInClicked" Padding="8,4" ToolTipService.ToolTip="Zoom in"/>
       <Button Content="-" Click="OfflineZoomOutClicked" Padding="8,4" ToolTipService.ToolTip="Zoom out"/>
       <Button Content="Fit" Click="OfflineFitClicked" Padding="8,4" FontSize="12" ToolTipService.ToolTip="Fit all mapped items"/>
       <Button Content="Show view in gallery" Click="OfflineFilterBoundsClicked" Padding="10,4" FontSize="12" Background="{ThemeResource LumaControl}"/>
      </StackPanel>
 
-     <Border x:Name="OfflinePinHint" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0" Padding="12,6" CornerRadius="999" Background="{ThemeResource SystemControlHighlightAccentBrush}" Visibility="Collapsed">
+     <Border x:Name="OfflinePinHint" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0" Padding="12,6" CornerRadius="999" Background="{ThemeResource SystemControlHighlightAccentBrush}" Shadow="{StaticResource FloatingPillShadow}" Translation="0,0,16" Visibility="Collapsed">
       <TextBlock x:Name="OfflinePinHintText" Text="Click anywhere on the map to assign catalog coordinates" Foreground="White" FontSize="12" FontWeight="SemiBold"/>
      </Border>
 
-     <!-- Slim Bottom-Center One-Time Privacy Banner -->
-     <Border x:Name="MapConsentCard" HorizontalAlignment="Center" VerticalAlignment="Bottom" MaxWidth="780" Margin="16,0,16,14" Background="{ThemeResource LumaCanvas}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="10" Padding="12,7">
-      <Grid ColumnSpacing="10">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-       <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-        <TextBlock Text="Online Map Privacy Notice (One-Time Per Session)" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
-        <TextBlock Text="Public OpenStreetMap tiles load only after opt-in; your files and coordinates stay on your PC." FontSize="11" Opacity="0.72" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-       </StackPanel>
-       <Button Grid.Column="1" Content="Load online map" Click="GrantMapOnlineConsent" Background="{ThemeResource LumaControl}" Padding="10,4" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
-       <Button Grid.Column="2" Content="✕" Click="DismissMapConsentBanner" ToolTipService.ToolTip="Hide notice" VerticalAlignment="Center" Padding="6,3" FontSize="11"/>
-      </Grid>
-     </Border>
-
-     <!-- Subtle Heatmap Legend -->
-     <Border x:Name="OfflineHeatLegend" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12" Padding="9,5" CornerRadius="9" Background="{ThemeResource LumaCanvas}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1">
-      <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
-       <TextBlock Text="Less" FontSize="11" Opacity="0.7"/>
-       <Border Width="68" Height="7" CornerRadius="4">
-        <Border.Background>
-         <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-          <GradientStop Color="#BF38BDF8" Offset="0"/>
-          <GradientStop Color="#DF10B981" Offset="0.45"/>
-          <GradientStop Color="#F0F59E0B" Offset="0.75"/>
-          <GradientStop Color="#FAEF4444" Offset="1"/>
-         </LinearGradientBrush>
-        </Border.Background>
+     <!-- Stacked Non-Overlapping Bottom Overlays -->
+     <StackPanel VerticalAlignment="Bottom" Spacing="8" Margin="12" IsHitTestVisible="True">
+      <Border x:Name="MapConsentCard" HorizontalAlignment="Center" MaxWidth="780" Background="{ThemeResource LumaElevatedSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" CornerRadius="10" Padding="12,7" Shadow="{StaticResource FloatingPillShadow}" Translation="0,0,16">
+       <Grid ColumnSpacing="10">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+         <TextBlock Text="Online Map Privacy Notice (One-Time Per Session)" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+         <TextBlock Text="Public OpenStreetMap tiles load only after opt-in; your files and coordinates stay on your PC." FontSize="11" Opacity="0.72" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+        </StackPanel>
+        <Button Grid.Column="1" Content="Load online map" Click="GrantMapOnlineConsent" Style="{StaticResource AccentButtonStyle}" Padding="10,4" FontSize="12" VerticalAlignment="Center"/>
+        <Button Grid.Column="2" Click="DismissMapConsentBanner" ToolTipService.ToolTip="Hide notice" AutomationProperties.Name="Hide online map notice" VerticalAlignment="Center" Padding="6,4">
+         <FontIcon Glyph="&#xE711;" FontSize="10"/>
+        </Button>
+       </Grid>
+      </Border>
+      <Grid>
+       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <Border x:Name="OfflineHeatLegend" HorizontalAlignment="Left" VerticalAlignment="Bottom" Padding="9,5" CornerRadius="9" Background="{ThemeResource LumaElevatedSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" Shadow="{StaticResource FloatingPillShadow}" Translation="0,0,16">
+        <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+         <TextBlock Text="Less" FontSize="11" Opacity="0.7"/>
+         <Border Width="68" Height="7" CornerRadius="4">
+          <Border.Background>
+           <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+            <GradientStop Color="#BF38BDF8" Offset="0"/>
+            <GradientStop Color="#DF10B981" Offset="0.45"/>
+            <GradientStop Color="#F0F59E0B" Offset="0.75"/>
+            <GradientStop Color="#FAEF4444" Offset="1"/>
+           </LinearGradientBrush>
+          </Border.Background>
+         </Border>
+         <TextBlock Text="More photos" FontSize="11" Opacity="0.7"/>
+        </StackPanel>
        </Border>
-       <TextBlock Text="More photos" FontSize="11" Opacity="0.7"/>
-      </StackPanel>
-     </Border>
-
-     <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="12" Padding="8,4" CornerRadius="7" Background="{ThemeResource LumaCanvas}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" Opacity="0.86">
-      <TextBlock x:Name="OfflineMapModeBadge" Text="Offline coordinate canvas" FontSize="10.5"/>
-     </Border>
+       <Border Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Bottom" Padding="8,4" CornerRadius="7" Background="{ThemeResource LumaElevatedSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" Opacity="0.88" Shadow="{StaticResource FloatingPillShadow}" Translation="0,0,16">
+        <TextBlock x:Name="OfflineMapModeBadge" Text="Offline coordinate canvas" FontSize="10.5"/>
+       </Border>
+      </Grid>
+     </StackPanel>
     </Grid>
 
     <!-- Full-Bleed Lazy WebView2 Host -->
     <Grid x:Name="MapWebHost" Visibility="Collapsed" Margin="0"/>
 
     <!-- Right Collapsible Drawer: Places | Clusters | Place Tags | Unlocated (Collapsed by Default) -->
-    <Border x:Name="MapDrawerPanel" Grid.Column="1" Width="336" Visibility="Collapsed" Background="{ThemeResource LumaSidebar}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1,0,0,0" Padding="12">
+    <Border x:Name="MapDrawerPanel" Grid.Column="1" Width="340" Visibility="Collapsed" Background="{ThemeResource LumaSidebar}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1,0,0,0" Padding="12" Shadow="{StaticResource FloatingPillShadow}" Translation="0,0,16">
      <Grid RowSpacing="8">
-      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-      <Border Background="{ThemeResource LumaControl}" CornerRadius="9" Padding="3">
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <Grid ColumnSpacing="8">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <TextBlock Text="Locations &amp; spots" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+       <Button Grid.Column="1" Click="CloseMapDrawerClicked" Padding="6,4" AutomationProperties.Name="Close locations drawer" ToolTipService.ToolTip="Close locations drawer">
+        <FontIcon Glyph="&#xE711;" FontSize="11"/>
+       </Button>
+      </Grid>
+      <TextBox x:Name="MapDrawerFilterBox" Grid.Row="1" PlaceholderText="Filter places, spots, or filenames…" TextChanged="MapDrawerFilterChanged" FontSize="12" AutomationProperties.Name="Filter drawer locations"/>
+      <Border Grid.Row="2" Background="{ThemeResource LumaControl}" CornerRadius="9" Padding="3">
        <Grid ColumnSpacing="2">
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <ToggleButton x:Name="MapTabPlaces" Content="Places" IsChecked="True" Click="MapDrawerTabClicked" HorizontalAlignment="Stretch" Padding="4,4" FontSize="11"/>
@@ -457,7 +566,7 @@
        </Grid>
       </Border>
 
-      <Grid Grid.Row="1">
+      <Grid Grid.Row="3">
        <TextBlock x:Name="MapDrawerEmpty" Text="No location items in this view." TextWrapping="Wrap" Opacity="0.65" FontSize="12" Margin="6,12" Visibility="Collapsed"/>
 
        <ListView x:Name="MapPlacesList" SelectionMode="None">
@@ -547,6 +656,27 @@
       </DataTemplate></ListView.ItemTemplate>
      </ListView>
     </Grid>
+   </Border>
+  </Grid>
+  </Grid> <!-- End WorkspaceRoot -->
+  </ContentControl>
+
+  <!-- Transparent Loading Veil & Progress Feedback Overlay -->
+  <Grid x:Name="LoadingVeil" Canvas.ZIndex="100" Visibility="Visible" IsHitTestVisible="True" Background="{ThemeResource LumaModalScrim}" AutomationProperties.LiveSetting="Polite">
+   <Border x:Name="LoadingCard" HorizontalAlignment="Center" VerticalAlignment="Center" Width="420" Padding="24,20" CornerRadius="14" Background="{ThemeResource LumaElevatedSurface}" BorderBrush="{ThemeResource LumaCardBorder}" BorderThickness="1" Shadow="{StaticResource FloatingPillShadow}" Translation="0,0,24">
+    <StackPanel Spacing="12">
+     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+      <ProgressRing x:Name="LoadingRing" Width="20" Height="20" IsActive="True"/>
+      <TextBlock x:Name="LoadingTitle" Text="Opening your library" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+     </StackPanel>
+     <TextBlock x:Name="LoadingDetail" Text="Checking catalog health safely. Originals remain untouched." FontSize="12.5" Opacity="0.78" TextWrapping="Wrap"/>
+     <ProgressBar x:Name="LoadingProgressBar" IsIndeterminate="True" Minimum="0" Maximum="100" HorizontalAlignment="Stretch"/>
+     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,2,0,0">
+      <Button x:Name="LoadingRetryButton" Content="Try again" Click="RetryStartupLockClicked" Visibility="Collapsed" Style="{StaticResource AccentButtonStyle}"/>
+      <Button x:Name="LoadingExitButton" Content="Exit" Click="ExitAppClicked" Visibility="Collapsed" Background="{ThemeResource LumaControl}"/>
+      <Button x:Name="LoadingCancelButton" Content="Cancel" Click="CancelLoadingOverlayClicked" Visibility="Collapsed" Background="{ThemeResource LumaControl}"/>
+     </StackPanel>
+    </StackPanel>
    </Border>
   </Grid>
  </Grid>

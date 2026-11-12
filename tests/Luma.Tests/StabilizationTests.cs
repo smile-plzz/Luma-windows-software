@@ -494,6 +494,34 @@ public sealed class StabilizationTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task ThumbnailCacheLockAndDuplicateScanCancellationBehaveCleanly()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "luma-lock-" + Guid.NewGuid().ToString("N"));
+        var dbPath = Path.Combine(dir, "catalog.db");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            using (var first = new ThumbnailCache(Path.Combine(dir, "thumbnails"), 1024L * 1024 * 64))
+            {
+                Assert.Throws<IOException>(() => new ThumbnailCache(Path.Combine(dir, "thumbnails"), 1024L * 1024 * 64));
+            }
+
+            // Once released, reopening succeeds cleanly
+            using var reopened = new ThumbnailCache(Path.Combine(dir, "thumbnails"), 1024L * 1024 * 64);
+
+            var catalog = new MediaCache(dbPath, new FixedResolver("src-dup", dir));
+            await catalog.InitializeAsync();
+            using var preCancelled = new CancellationTokenSource();
+            preCancelled.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => catalog.FindDuplicatesAsync(ct: preCancelled.Token));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
     private sealed class FixedResolver(string id, string root) : ISourceResolver
     {
         public string? ResolveRoot(string sourceId) => sourceId == id ? root : null;

@@ -211,13 +211,29 @@ public sealed partial class MainWindow
     private void ApplyMapChromeVisibility()
     {
         if (MapDrawerPanel is not null && MapDrawerToggle is not null)
-            MapDrawerPanel.Visibility = MapDrawerToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        {
+            var showDrawer = MapDrawerToggle.IsChecked == true;
+            var wasDrawer = MapDrawerPanel.Visibility == Visibility.Visible;
+            MapDrawerPanel.Visibility = showDrawer ? Visibility.Visible : Visibility.Collapsed;
+            if (showDrawer && !wasDrawer) AnimatePanelEntrance(MapDrawerPanel, 18f, 0f, 160);
+        }
         if (MapFilmstripBar is not null && MapStripToggle is not null)
-            MapFilmstripBar.Visibility = MapStripToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        {
+            var showStrip = MapStripToggle.IsChecked == true;
+            var wasStrip = MapFilmstripBar.Visibility == Visibility.Visible;
+            MapFilmstripBar.Visibility = showStrip ? Visibility.Visible : Visibility.Collapsed;
+            if (showStrip && !wasStrip) AnimatePanelEntrance(MapFilmstripBar, 0f, 14f, 160);
+        }
         if (MapConsentCard is not null)
             MapConsentCard.Visibility = !mapOnlineConsentGranted && !settings.MapConsentNoticeDismissed
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+    }
+
+    private void CloseMapDrawerClicked(object sender, RoutedEventArgs e)
+    {
+        if (MapDrawerToggle is not null) MapDrawerToggle.IsChecked = false;
+        else if (MapDrawerPanel is not null) MapDrawerPanel.Visibility = Visibility.Collapsed;
     }
 
     private void UpdateMapModeHeaderButton()
@@ -277,7 +293,9 @@ public sealed partial class MainWindow
     {
         ApplySavedMapSettingsToUi();
         pendingMapFocus = focusCoords;
+        var mapWasVisible = MapOverlay.Visibility == Visibility.Visible;
         MapOverlay.Visibility = Visibility.Visible;
+        if (!mapWasVisible) AnimatePanelEntrance(MapOverlay, 0f, 8f, 160);
         MapFilmstripList.ItemsSource = mapStripItems;
         ApplyMapChromeVisibility();
 
@@ -554,11 +572,16 @@ public sealed partial class MainWindow
         }
     }
 
+    private VisitedPlaceSummary[] allDrawerPlaces = Array.Empty<VisitedPlaceSummary>();
+    private OfflineGeoCluster[] allDrawerClusters = Array.Empty<OfflineGeoCluster>();
+    private MapDrawerMediaRow[] allDrawerPlaceTags = Array.Empty<MapDrawerMediaRow>();
+    private MapDrawerMediaRow[] allDrawerUnlocated = Array.Empty<MapDrawerMediaRow>();
+
     private OfflineGeoCluster[] PopulateOfflineDrawerLists(
         IReadOnlyList<PlaceTaggedItem> placeTagged,
         IReadOnlyList<LibraryItem> unlocated)
     {
-        MapPlacesList.ItemsSource = currentVisitedPlaces;
+        allDrawerPlaces = currentVisitedPlaces.ToArray();
 
         OfflineGeoCluster[] clusters;
         if (currentMapMarkers.Count == 0)
@@ -595,16 +618,16 @@ public sealed partial class MainWindow
                 })
                 .ToArray();
         }
-        MapOfflineGroupsList.ItemsSource = clusters;
+        allDrawerClusters = clusters;
 
-        MapPlaceTagsList.ItemsSource = placeTagged.Select(p => new MapDrawerMediaRow(
+        allDrawerPlaceTags = placeTagged.Select(p => new MapDrawerMediaRow(
             p.Media,
             Path.GetFileName(p.Media.RelativePath),
             new DateTime(p.DateTicks, DateTimeKind.Utc).ToLocalTime().ToString("dd MMM yyyy HH:mm"),
             p.LocationName,
             p.Favorite)).ToArray();
 
-        MapUnlocatedList.ItemsSource = unlocated.Select(u =>
+        allDrawerUnlocated = unlocated.Select(u =>
         {
             var ticks = u.Metadata?.TakenTicks ?? u.Media.ModifiedTicks;
             var metaNote = u.Metadata?.CameraModel ?? u.Media.Kind;
@@ -616,8 +639,25 @@ public sealed partial class MainWindow
                 u.Favorite);
         }).ToArray();
 
-        UpdateDrawerEmptyState();
+        ApplyDrawerSearchFilter();
         return clusters;
+    }
+
+    private void MapDrawerFilterChanged(object sender, TextChangedEventArgs e) => ApplyDrawerSearchFilter();
+
+    private void ApplyDrawerSearchFilter()
+    {
+        var q = MapDrawerFilterBox?.Text?.Trim() ?? "";
+        bool Match(params string?[] fields) => string.IsNullOrEmpty(q) || fields.Any(f => !string.IsNullOrWhiteSpace(f) && f.Contains(q, StringComparison.OrdinalIgnoreCase));
+        if (MapPlacesList is not null)
+            MapPlacesList.ItemsSource = allDrawerPlaces.Where(p => Match(p.Title, p.Subtitle)).ToArray();
+        if (MapOfflineGroupsList is not null)
+            MapOfflineGroupsList.ItemsSource = allDrawerClusters.Where(c => Match(c.Title, c.Subtitle)).ToArray();
+        if (MapPlaceTagsList is not null)
+            MapPlaceTagsList.ItemsSource = allDrawerPlaceTags.Where(t => Match(t.LocationName, t.Title)).ToArray();
+        if (MapUnlocatedList is not null)
+            MapUnlocatedList.ItemsSource = allDrawerUnlocated.Where(u => Match(u.Title, u.Subtitle, u.LocationName)).ToArray();
+        UpdateDrawerEmptyState();
     }
 
     private void UpdateDrawerEmptyState()
@@ -630,7 +670,7 @@ public sealed partial class MainWindow
 
         int activeCount = mapDrawerTab switch
         {
-            "places" => currentVisitedPlaces.Count,
+            "places" => (MapPlacesList.ItemsSource as Array)?.Length ?? 0,
             "clusters" => (MapOfflineGroupsList.ItemsSource as Array)?.Length ?? 0,
             "placeTags" => (MapPlaceTagsList.ItemsSource as Array)?.Length ?? 0,
             _ => (MapUnlocatedList.ItemsSource as Array)?.Length ?? 0

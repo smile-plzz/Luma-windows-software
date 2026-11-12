@@ -36,7 +36,8 @@ public sealed class MediaCard : INotifyPropertyChanged
     {
         if (Item.Media.IsAvailable == online) return;
         Item = Item with { Media = Item.Media with { IsAvailable = online } };
-        Changed(nameof(Item)); Changed(nameof(State)); Changed(nameof(StatusVisibility)); Changed(nameof(TooltipText));
+        Changed(nameof(Item)); Changed(nameof(State)); Changed(nameof(StatusVisibility));
+        Changed(nameof(OfflineBadgeVisibility)); Changed(nameof(BottomScrimOpacity)); Changed(nameof(TooltipText));
     }
 
     public void UpdateItem(LibraryItem updated)
@@ -45,19 +46,29 @@ public sealed class MediaCard : INotifyPropertyChanged
         Changed(nameof(Item));
         Changed(nameof(State));
         Changed(nameof(StatusVisibility));
+        Changed(nameof(VideoBadgeText));
+        Changed(nameof(VideoBadgeVisibility));
+        Changed(nameof(OfflineBadgeVisibility));
         Changed(nameof(FavoriteGlyph));
+        Changed(nameof(FavoriteBadgeVisibility));
+        Changed(nameof(BottomScrimOpacity));
         Changed(nameof(TooltipText));
     }
 
     public void Discard()
     {
         discarded = true;
+        isHovered = false;
+        isSelectedAdaptive = false;
         Realized = false;
         Thumbnail = null;
         ThumbnailRequest?.Cancel();
         ThumbnailRequest = null;
         Changed(nameof(Name));
         Changed(nameof(TooltipText));
+        Changed(nameof(QuickActionOpacity));
+        Changed(nameof(BottomScrimOpacity));
+        Changed(nameof(HoverBorderOpacity));
     }
 
     public string Name => discarded ? "" : Path.GetFileName(Item.Media.RelativePath);
@@ -130,6 +141,22 @@ public sealed class MediaCard : INotifyPropertyChanged
 
     public string State => (Item.Favorite ? "★  " : "") + (Item.Media.Kind == "video" ? "VIDEO  " : "") + (Item.Media.IsAvailable ? "" : "Offline");
     public Visibility StatusVisibility => string.IsNullOrWhiteSpace(State) ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility VideoBadgeVisibility => Item.Media.Kind == "video" ? Visibility.Visible : Visibility.Collapsed;
+    public string VideoBadgeText
+    {
+        get
+        {
+            if (Item.Media.Kind != "video") return "";
+            if (Item.Metadata?.DurationSeconds is double secs && secs > 0)
+            {
+                var span = TimeSpan.FromSeconds(secs);
+                return span.TotalHours >= 1 ? $"▶ {(int)span.TotalHours}:{span:mm\\:ss}" : $"▶ {span:m\\:ss}";
+            }
+            return "▶ VIDEO";
+        }
+    }
+    public Visibility OfflineBadgeVisibility => Item.Media.IsAvailable ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility FavoriteBadgeVisibility => Item.Favorite ? Visibility.Visible : Visibility.Collapsed;
     public string FavoriteGlyph => Item.Favorite ? "★" : "☆";
 
     public double TileWidth => settings.ThumbnailSize;
@@ -165,12 +192,40 @@ public sealed class MediaCard : INotifyPropertyChanged
     public double CutOpacity => IsCut ? 0.45 : 1;
 
     private bool isHovered;
-    public bool IsHovered { get => isHovered; set { isHovered = value; Changed(nameof(QuickActionVisibility)); } }
+    public bool IsHovered
+    {
+        get => isHovered;
+        set
+        {
+            if (isHovered == value) return;
+            isHovered = value;
+            Changed(nameof(IsHovered));
+            Changed(nameof(QuickActionVisibility));
+            Changed(nameof(QuickActionOpacity));
+            Changed(nameof(BottomScrimOpacity));
+            Changed(nameof(HoverBorderOpacity));
+        }
+    }
     public Visibility QuickActionVisibility => isHovered ? Visibility.Visible : Visibility.Collapsed;
+    public double QuickActionOpacity => isHovered ? 1.0 : 0.0;
+    public double HoverBorderOpacity => isHovered ? 1.0 : 0.0;
+    public double BottomScrimOpacity => (isHovered || Item.Media.Kind == "video" || !Item.Media.IsAvailable || Item.Favorite) ? 1.0 : 0.0;
 
     private bool isSelectedAdaptive;
-    public bool IsSelectedAdaptive { get => isSelectedAdaptive; set { isSelectedAdaptive = value; Changed(nameof(AdaptiveSelectionThickness)); } }
+    public bool IsSelectedAdaptive
+    {
+        get => isSelectedAdaptive;
+        set
+        {
+            if (isSelectedAdaptive == value) return;
+            isSelectedAdaptive = value;
+            Changed(nameof(IsSelectedAdaptive));
+            Changed(nameof(AdaptiveSelectionThickness));
+            Changed(nameof(AdaptiveSelectionVisibility));
+        }
+    }
     public Thickness AdaptiveSelectionThickness => isSelectedAdaptive ? new Thickness(2.5) : new Thickness(0);
+    public Visibility AdaptiveSelectionVisibility => isSelectedAdaptive ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility PlaceholderVisibility => Thumbnail is null ? Visibility.Visible : Visibility.Collapsed;
     public bool Realized { get; set; }

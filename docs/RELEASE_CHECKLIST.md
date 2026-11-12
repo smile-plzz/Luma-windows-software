@@ -4,15 +4,15 @@ Mandatory quality gate before cutting any release candidate (`vX.Y.Z-rcN`) or fi
 
 ## 1. Automated Verification (after final code edit)
 - [x] Zero em-dashes (`\u2014`) in code comments, UI strings, workflows, or release notes (`git ls-files` verified 0 hits).
-- [x] Core tests pass (`dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release`): **129 passed, 0 failed, 0 skipped**.
+- [x] Core tests pass (`dotnet test tests/Luma.Tests/Luma.Tests.csproj -c Release`): **131 passed, 0 failed, 0 skipped**.
 - [x] Windows integration tests pass (`dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release`): **8 passed, 0 failed, 0 skipped**.
 - [x] Large-library benchmarks updated (`dotnet run --project tests/Luma.Benchmarks/Luma.Benchmarks.csproj -c Release`) and `docs/PERFORMANCE.md` matches measured numbers (`100k`: 153.91 ms first page + count; `500k`: 562.23 ms first page + count, 18.84 ms next page).
 - [x] Clean self-contained Release publish (`dotnet publish src/Luma.App/Luma.App.csproj -c Release -r win-x64 -p:Platform=x64 -o artifacts/Luma-win-x64`) contains `Luma.App.exe`, `Assets/Luma.ico`, and `MainWindow.xbf`.
-- [x] Native desktop UIA smoke test (`scripts/Smoke-Test.ps1`) passed against published `Luma.App.exe` (`1147.0s`, exit code 0; local run used unattended lock-screen fallback for OS Clipboard/context menu while CI enforces strict checks).
+- [x] Native desktop UIA smoke test (`scripts/Smoke-Test.ps1`) passed against published `Luma.App.exe` (`521.7s`, exit code 0; CI desktop job also enforces strict UIA checks).
 - [ ] GitHub Actions `build.yml` workflow green on the exact commit SHA to be released (ready to verify upon push).
 
 ## 2. Findings & Exit Gate
-- [x] Zero open `S1` or `S2` findings in `docs/assessment/FINDINGS.md` (`F-001`..`F-031` resolved and verified).
+- [x] Zero open `S1` or `S2` findings in `docs/assessment/FINDINGS.md` (`F-001`..`F-033` resolved and verified).
 - [x] All `S3` items resolved or consciously deferred in `docs/DECISIONS.md` (with explicit `[ASK]` items flagged for owner confirmation).
 - [x] Upgrade test from previous released catalog schema (`v0.6.0` -> current) verified green (`StabilizationTests` + `UpgradeTests`).
 - [x] Crash/kill/corruption recovery and Bangla/Unicode/long-path (>260 char) torture tests verified green (`StabilizationTests` + `Luma.Windows.Tests`).

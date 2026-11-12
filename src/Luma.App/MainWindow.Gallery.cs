@@ -57,6 +57,7 @@ public sealed partial class MainWindow
         SortBox.SelectedIndex = settings.SortIndex;
         GroupBox.SelectedIndex = settings.GroupIndex;
         DescendingButton.IsChecked = settings.Descending;
+        DescendingIcon.Glyph = settings.Descending ? "\uE74B" : "\uE74A";
         ThumbnailSlider.Value = settings.ThumbnailSize;
         NamesToggle.IsChecked = settings.ShowNames;
         DetailsToggle.IsChecked = settings.ShowDetails;
@@ -74,21 +75,31 @@ public sealed partial class MainWindow
             _ => 0
         };
         ApplyLayoutModeVisibility();
-        ApplyCollapsibleState();
+        ApplyCollapsibleState(animate: false);
     }
 
-    private void ApplyCollapsibleState()
+    private void ApplyCollapsibleState(bool animate = true)
     {
+        var showSidebar = !settings.SidebarCollapsed;
+        var sidebarWasVisible = SidebarPanel.Visibility == Visibility.Visible;
         SidebarColumn.Width = settings.SidebarCollapsed ? new GridLength(0) : new GridLength(224);
-        SidebarPanel.Visibility = settings.SidebarCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        SidebarPanel.Visibility = showSidebar ? Visibility.Visible : Visibility.Collapsed;
+        if (animate && showSidebar && !sidebarWasVisible) AnimatePanelEntrance(SidebarPanel, -14f, 0f, 160);
 
-        GalleryToolbarRow.Visibility = settings.HeaderCollapsed ? Visibility.Collapsed : Visibility.Visible;
-        HeaderCollapseButton.Content = settings.HeaderCollapsed ? "⌄" : "⌃";
+        var showHeader = !settings.HeaderCollapsed;
+        var headerWasVisible = GalleryToolbarRow.Visibility == Visibility.Visible;
+        GalleryToolbarRow.Visibility = showHeader ? Visibility.Visible : Visibility.Collapsed;
+        HeaderCollapseIcon.Glyph = settings.HeaderCollapsed ? "\uE70D" : "\uE70E";
+        if (animate && showHeader && !headerWasVisible) AnimatePanelEntrance(GalleryToolbarRow, 0f, -8f, 150);
 
         ViewsSection.Visibility = settings.ViewsExpanded ? Visibility.Visible : Visibility.Collapsed;
         AlbumsSection.Visibility = settings.AlbumsExpanded ? Visibility.Visible : Visibility.Collapsed;
         SmartCollectionsSection.Visibility = settings.SmartCollectionsExpanded ? Visibility.Visible : Visibility.Collapsed;
         SourcesSection.Visibility = settings.SourcesExpanded ? Visibility.Visible : Visibility.Collapsed;
+        AnimateChevronRotation(ViewsChevron, settings.ViewsExpanded);
+        AnimateChevronRotation(AlbumsChevron, settings.AlbumsExpanded);
+        AnimateChevronRotation(SmartCollectionsChevron, settings.SmartCollectionsExpanded);
+        AnimateChevronRotation(SourcesChevron, settings.SourcesExpanded);
         UpdateSidebarCounts();
     }
 
@@ -98,16 +109,10 @@ public sealed partial class MainWindow
         if (collectionsCount.HasValue) cachedCollectionsCount = collectionsCount.Value;
         if (sourcesCount.HasValue) cachedSourcesCount = sourcesCount.Value;
 
-        ViewsHeaderLabel.Text = settings.ViewsExpanded ? "▾ Views" : "▸ Views";
-        AlbumsHeaderLabel.Text = settings.AlbumsExpanded
-            ? "▾ Albums"
-            : $"▸ Albums ({cachedAlbumsCount})";
-        SmartCollectionsHeaderLabel.Text = settings.SmartCollectionsExpanded
-            ? "▾ Smart collections"
-            : $"▸ Smart collections ({cachedCollectionsCount})";
-        SourcesHeaderLabel.Text = settings.SourcesExpanded
-            ? "▾ Folders & drives"
-            : $"▸ Folders & drives ({cachedSourcesCount})";
+        ViewsHeaderLabel.Text = "Views";
+        AlbumsHeaderLabel.Text = settings.AlbumsExpanded ? "Albums" : $"Albums ({cachedAlbumsCount})";
+        SmartCollectionsHeaderLabel.Text = settings.SmartCollectionsExpanded ? "Smart collections" : $"Smart collections ({cachedCollectionsCount})";
+        SourcesHeaderLabel.Text = settings.SourcesExpanded ? "Folders & drives" : $"Folders & drives ({cachedSourcesCount})";
     }
 
     private void ToggleSidebar(object sender, RoutedEventArgs e)
@@ -377,15 +382,22 @@ public sealed partial class MainWindow
         MapBounds: activeMapBounds);
 
     private readonly SemaphoreSlim galleryGate = new(1, 1);
+    private long galleryRequestVersion;
 
     private Task Refresh() => RefreshGallery(false);
     private async Task RefreshGallery(bool reuseMonths, int startOffset = 0)
     {
         if (!ready) return;
+        var myVersion = Interlocked.Increment(ref galleryRequestVersion);
+        queryCancellation?.Cancel();
+
         await galleryGate.WaitAsync();
+        using var veilDelayCts = new CancellationTokenSource();
         try
         {
-            queryCancellation?.Cancel(); queryCancellation = new(); var token = queryCancellation.Token;
+            if (myVersion != Interlocked.Read(ref galleryRequestVersion) || !ready) return;
+
+            queryCancellation = new(); var token = queryCancellation.Token;
             loadedStart = startOffset; ResumeNavigation.Visibility = loadedStart > 0 ? Visibility.Visible : Visibility.Collapsed;
             cursor = null; exhausted = false; loading = false; pendingLoadMore = false;
             foreach (var card in cards) card.Discard();
@@ -395,8 +407,27 @@ public sealed partial class MainWindow
             activeQuery = CurrentQuery();
             galleryScroll?.ChangeView(null, 0, null, true);
             adaptiveScroll?.ChangeView(null, 0, null, true);
-            EmptyState.Visibility = Visibility.Collapsed; Busy.IsActive = true;
+            EmptyState.Visibility = Visibility.Collapsed;
+            Busy.IsActive = true;
+            GalleryLoadingBar.Visibility = Visibility.Visible;
             if (!scanning && !preparing) Status.Text = "Loading moments…";
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(160, veilDelayCts.Token);
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        if (!veilDelayCts.IsCancellationRequested && myVersion == Interlocked.Read(ref galleryRequestVersion))
+                        {
+                            GalleryResetRing.IsActive = true;
+                            GalleryResetVeil.Visibility = Visibility.Visible;
+                        }
+                    });
+                }
+                catch (OperationCanceledException) { }
+            });
 
             libraryTotal = (await Task.Run(() => catalog.SourceCountsAsync(token), token)).Values.Sum();
             token.ThrowIfCancellationRequested();
@@ -455,6 +486,11 @@ public sealed partial class MainWindow
         catch (OperationCanceledException) { }
         finally
         {
+            veilDelayCts.Cancel();
+            GalleryResetRing.IsActive = false;
+            GalleryResetVeil.Visibility = Visibility.Collapsed;
+            GalleryLoadingBar.Visibility = Visibility.Collapsed;
+            Busy.IsActive = scanning || preparing || loading;
             galleryGate.Release();
         }
     }
@@ -642,15 +678,19 @@ public sealed partial class MainWindow
     private async void TileChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
     {
         if (e.ItemContainer.Tag is MediaCard previous && (e.InRecycleQueue || !ReferenceEquals(previous, e.Item)))
-        { previous.Realized = false; previous.Thumbnail = null; previous.ThumbnailRequest?.Cancel(); previous.ThumbnailRequest = null; }
+        { previous.IsHovered = false; previous.Realized = false; previous.Thumbnail = null; previous.ThumbnailRequest?.Cancel(); previous.ThumbnailRequest = null; }
         e.ItemContainer.Tag = e.InRecycleQueue ? null : e.Item;
         var a11yView = e.InRecycleQueue ? AccessibilityView.Raw : AccessibilityView.Content;
         AutomationProperties.SetAccessibilityView(e.ItemContainer, a11yView);
         if (e.ItemContainer.ContentTemplateRoot is DependencyObject rootObj)
+        {
             AutomationProperties.SetAccessibilityView(rootObj, a11yView);
+            if (FindDescendantByName<FrameworkElement>(rootObj, "CardImage") is FrameworkElement recycledImg)
+                ResetThumbnailVisual(recycledImg);
+        }
         if (e.Item is not MediaCard card) return;
         card.Realized = !e.InRecycleQueue;
-        if (e.InRecycleQueue) { card.Thumbnail = null; return; }
+        if (e.InRecycleQueue) { card.IsHovered = false; card.Thumbnail = null; return; }
         await LoadThumbnail(card);
     }
 
@@ -660,6 +700,7 @@ public sealed partial class MainWindow
         {
             foreach (var c in prevRow.Items)
             {
+                c.IsHovered = false;
                 c.Realized = false;
                 c.Thumbnail = null;
                 c.ThumbnailRequest?.Cancel();
@@ -675,7 +716,7 @@ public sealed partial class MainWindow
         foreach (var card in row.Items)
         {
             card.Realized = !e.InRecycleQueue;
-            if (e.InRecycleQueue) { card.Thumbnail = null; }
+            if (e.InRecycleQueue) { card.IsHovered = false; card.Thumbnail = null; }
             else _ = LoadThumbnail(card);
         }
     }
@@ -717,14 +758,66 @@ public sealed partial class MainWindow
         finally { if (ReferenceEquals(card.ThumbnailRequest, request)) card.ThumbnailRequest = null; request.Dispose(); }
     }
 
+    private void CardImageOpened(object sender, RoutedEventArgs e)
+    {
+        if (sender is UIElement el) FadeInVisual(el, 130);
+    }
+
     private void CardPointerEntered(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: MediaCard card }) card.IsHovered = true;
+        if (sender is FrameworkElement fe && fe.DataContext is MediaCard card)
+        {
+            card.IsHovered = true;
+            if (FindDescendantByName<FrameworkElement>(fe, "CardImage") is FrameworkElement img)
+                AnimateThumbnailScale(img, 1.035f, 180);
+        }
     }
 
     private void CardPointerExited(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: MediaCard card }) card.IsHovered = false;
+        if (sender is FrameworkElement fe && fe.DataContext is MediaCard card)
+        {
+            card.IsHovered = false;
+            if (FindDescendantByName<FrameworkElement>(fe, "CardImage") is FrameworkElement img)
+                AnimateThumbnailScale(img, 1.0f, 180);
+        }
+    }
+
+    private async void AdaptiveCardKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: MediaCard card } fe) return;
+        if (e.Key == VirtualKey.Enter)
+        {
+            SelectSingleCard(card);
+            e.Handled = true;
+            await Guard(Open);
+        }
+        else if (e.Key == VirtualKey.Space && SelectMode.IsChecked == true)
+        {
+            if (adaptiveSelectedCards.Contains(card))
+            {
+                adaptiveSelectedCards.Remove(card);
+                card.IsSelectedAdaptive = false;
+            }
+            else
+            {
+                adaptiveSelectedCards.Add(card);
+                card.IsSelectedAdaptive = true;
+            }
+            UpdateSelectionChrome(adaptiveSelectedCards.ToArray());
+            e.Handled = true;
+        }
+        else if (e.Key == VirtualKey.Application)
+        {
+            contextCard = card;
+            if (!adaptiveSelectedCards.Contains(card)) SelectSingleCard(card);
+            if (MediaGrid.ContextFlyout is MenuFlyout flyout)
+            {
+                GalleryContextMenuOpening(flyout, EventArgs.Empty);
+                flyout.ShowAt(fe);
+            }
+            e.Handled = true;
+        }
     }
 
     private async void CardQuickFavoriteClick(object sender, RoutedEventArgs e)
@@ -1014,7 +1107,13 @@ public sealed partial class MainWindow
     }
 
     private async void DirectionChanged(object sender, RoutedEventArgs e)
-    { if (!ready || restoringPlace) return; settings.Descending = DescendingButton.IsChecked == true; settings.Save(); await Guard(Refresh); }
+    {
+        if (!ready || restoringPlace) return;
+        settings.Descending = DescendingButton.IsChecked == true;
+        DescendingIcon.Glyph = settings.Descending ? "\uE74B" : "\uE74A";
+        settings.Save();
+        await Guard(Refresh);
+    }
 
     private async void GroupChanged(object sender, SelectionChangedEventArgs e)
     { if (!ready || restoringPlace) return; settings.GroupIndex = Math.Max(0, GroupBox.SelectedIndex); settings.Save(); await Guard(Refresh); }
@@ -1157,7 +1256,14 @@ public sealed partial class MainWindow
         Heading.Text = "Library"; MemoryDate.Visibility = Visibility.Collapsed; ClearDateRange(); await Guard(Refresh);
     }
 
-    private void InspectorChanged(object sender, RoutedEventArgs e) { if (ready) Inspector.Visibility = InspectorToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed; }
+    private void InspectorChanged(object sender, RoutedEventArgs e)
+    {
+        if (!ready) return;
+        var show = InspectorToggle.IsChecked == true;
+        var wasVisible = Inspector.Visibility == Visibility.Visible;
+        Inspector.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (show && !wasVisible) AnimatePanelEntrance(Inspector, 16f, 0f, 160);
+    }
 
     private void GalleryWheel(object sender, PointerRoutedEventArgs e)
     {

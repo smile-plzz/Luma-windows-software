@@ -4,25 +4,37 @@
   </ResourceDictionary.MergedDictionaries>
     <ResourceDictionary.ThemeDictionaries>
      <ResourceDictionary x:Key="Light">
-      <SolidColorBrush x:Key="LumaCanvas" Color="#FAF9F6"/>
-      <SolidColorBrush x:Key="LumaSidebar" Color="#F2F0EC"/>
+      <SolidColorBrush x:Key="LumaCanvas" Color="#F5FAF9F6"/>
+      <SolidColorBrush x:Key="LumaSidebar" Color="#CCF2F0EC"/>
       <SolidColorBrush x:Key="LumaControl" Color="#EAE7E1"/>
+      <SolidColorBrush x:Key="LumaControlHover" Color="#E0DCD4"/>
       <SolidColorBrush x:Key="LumaCardSurface" Color="#F4F2EE"/>
-      <SolidColorBrush x:Key="LumaCardBorder" Color="#14000000"/>
+      <SolidColorBrush x:Key="LumaCardBorder" Color="#18000000"/>
+      <SolidColorBrush x:Key="LumaCardHoverBorder" Color="#4D000000"/>
+      <SolidColorBrush x:Key="LumaModalScrim" Color="#99F6F5F1"/>
+      <SolidColorBrush x:Key="LumaElevatedSurface" Color="#FCFAF6"/>
      </ResourceDictionary>
      <ResourceDictionary x:Key="Default">
-      <SolidColorBrush x:Key="LumaCanvas" Color="#171719"/>
-      <SolidColorBrush x:Key="LumaSidebar" Color="#202024"/>
+      <SolidColorBrush x:Key="LumaCanvas" Color="#F5171719"/>
+      <SolidColorBrush x:Key="LumaSidebar" Color="#CC1E1E22"/>
       <SolidColorBrush x:Key="LumaControl" Color="#2A2A30"/>
+      <SolidColorBrush x:Key="LumaControlHover" Color="#37373F"/>
       <SolidColorBrush x:Key="LumaCardSurface" Color="#222227"/>
-      <SolidColorBrush x:Key="LumaCardBorder" Color="#1CFFFFFF"/>
+      <SolidColorBrush x:Key="LumaCardBorder" Color="#22FFFFFF"/>
+      <SolidColorBrush x:Key="LumaCardHoverBorder" Color="#52FFFFFF"/>
+      <SolidColorBrush x:Key="LumaModalScrim" Color="#B30D0D10"/>
+      <SolidColorBrush x:Key="LumaElevatedSurface" Color="#25252A"/>
      </ResourceDictionary>
      <ResourceDictionary x:Key="HighContrast">
       <SolidColorBrush x:Key="LumaCanvas" Color="{ThemeResource SystemColorWindowColor}"/>
       <SolidColorBrush x:Key="LumaSidebar" Color="{ThemeResource SystemColorWindowColor}"/>
       <SolidColorBrush x:Key="LumaControl" Color="{ThemeResource SystemColorButtonFaceColor}"/>
+      <SolidColorBrush x:Key="LumaControlHover" Color="{ThemeResource SystemColorHighlightColor}"/>
       <SolidColorBrush x:Key="LumaCardSurface" Color="{ThemeResource SystemColorButtonFaceColor}"/>
       <SolidColorBrush x:Key="LumaCardBorder" Color="{ThemeResource SystemColorWindowTextColor}"/>
+      <SolidColorBrush x:Key="LumaCardHoverBorder" Color="{ThemeResource SystemColorHighlightColor}"/>
+      <SolidColorBrush x:Key="LumaModalScrim" Color="{ThemeResource SystemColorWindowColor}"/>
+      <SolidColorBrush x:Key="LumaElevatedSurface" Color="{ThemeResource SystemColorWindowColor}"/>
      </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary></Application.Resources>

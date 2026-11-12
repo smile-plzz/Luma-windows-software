@@ -354,52 +354,62 @@ public sealed partial class MainWindow
             if (destination.Equals(current, StringComparison.OrdinalIgnoreCase) || destination.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) { targetId = source.Id; targetRoot = current; break; }
         }
         if (!roots.Any(s => s.Id == targetId)) await Task.Run(() => catalog.ScanAsync(targetId, targetRoot));
-        scanCancellation = new(); CancelButton.Visibility = Visibility.Visible; Busy.IsActive = true;
+        scanCancellation = new();
         var reports = new List<TransferResult>(); bool catalogFailure = false;
         try
         {
-            for (int index = 0; index < paths.Length; index++)
-            {
-                if (scanCancellation.IsCancellationRequested) break;
-                var path = paths[index]; var descriptor = media.Length == paths.Length ? media[index] : null;
-                var original = new FileInfo(path);
-                if (!original.Exists)
+            await RunLockedAsync(
+                move ? "Moving selected files" : "Copying selected files",
+                $"Transferring {paths.Length:N0} item(s) to {destination} cleanly…",
+                async (progress, ct) =>
                 {
-                    reports.Add(new TransferResult(path, Path.Combine(destination, Path.GetFileName(path)), false, false, "Original file is no longer present on disk."));
-                    continue;
-                }
-                var length = original.Length; var ticks = original.LastWriteTimeUtc.Ticks;
-                var target = Path.Combine(destination, Path.GetFileName(path));
-                bool Valid() => resolver.ResolveRoot(destinationIdentity.Id) is not null && (descriptor is null ? new FileInfo(path) is var f && f.Exists && f.Length == length && f.LastWriteTimeUtc.Ticks == ticks : resolver.ResolveRoot(descriptor.SourceId) is string r && SourcePaths.Combine(r, descriptor.RelativePath).Equals(path, StringComparison.OrdinalIgnoreCase) && MediaCache.VersionMatches(path, descriptor));
-                Status.Text = $"{(move ? "Moving" : "Copying")} {index + 1:N0} / {paths.Length:N0}";
-                var result = await Task.Run(() => FileTransfer.RunAsync(path, target, move, Valid, scanCancellation.Token, conflictMode)); reports.Add(result);
-                if (result.Moved && descriptor is not null)
-                {
-                    try
+                    using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, scanCancellation.Token);
+                    for (int index = 0; index < paths.Length; index++)
                     {
-                        var info = new FileInfo(result.Destination);
-                        await catalog.RelocateAsync(descriptor, descriptor with { SourceId = targetId, RelativePath = Path.GetRelativePath(targetRoot, result.Destination), Length = info.Length, ModifiedTicks = info.LastWriteTimeUtc.Ticks });
+                        if (linked.IsCancellationRequested) break;
+                        var path = paths[index]; var descriptor = media.Length == paths.Length ? media[index] : null;
+                        var original = new FileInfo(path);
+                        if (!original.Exists)
+                        {
+                            reports.Add(new TransferResult(path, Path.Combine(destination, Path.GetFileName(path)), false, false, "Original file is no longer present on disk."));
+                            continue;
+                        }
+                        var length = original.Length; var ticks = original.LastWriteTimeUtc.Ticks;
+                        var target = Path.Combine(destination, Path.GetFileName(path));
+                        bool Valid() => resolver.ResolveRoot(destinationIdentity.Id) is not null && (descriptor is null ? new FileInfo(path) is var f && f.Exists && f.Length == length && f.LastWriteTimeUtc.Ticks == ticks : resolver.ResolveRoot(descriptor.SourceId) is string r && SourcePaths.Combine(r, descriptor.RelativePath).Equals(path, StringComparison.OrdinalIgnoreCase) && MediaCache.VersionMatches(path, descriptor));
+                        var pct = 100d * index / Math.Max(1, paths.Length);
+                        progress.Report(($"{(move ? "Moving" : "Copying")} {index + 1:N0} / {paths.Length:N0}: {Path.GetFileName(path)}", pct));
+                        var result = await Task.Run(() => FileTransfer.RunAsync(path, target, move, Valid, linked.Token, conflictMode)); reports.Add(result);
+                        if (result.Moved && descriptor is not null)
+                        {
+                            try
+                            {
+                                var info = new FileInfo(result.Destination);
+                                await catalog.RelocateAsync(descriptor, descriptor with { SourceId = targetId, RelativePath = Path.GetRelativePath(targetRoot, result.Destination), Length = info.Length, ModifiedTicks = info.LastWriteTimeUtc.Ticks });
+                            }
+                            catch (Exception ex) { catalogFailure = true; reports[^1] = result with { Error = "File moved; catalog reconciliation failed: " + ex.Message }; }
+                        }
                     }
-                    catch (Exception ex) { catalogFailure = true; reports[^1] = result with { Error = "File moved; catalog reconciliation failed: " + ex.Message }; }
-                }
-            }
-            var log = Path.Combine(AppSettings.LocalRoot, "last-transfer.json");
-            await File.WriteAllTextAsync(log, JsonSerializer.Serialize(reports, new JsonSerializerOptions { WriteIndented = true }));
-            if (!catalogFailure)
-            {
-                await Task.Run(() => catalog.ScanAsync(targetId, targetRoot));
-                InvalidateMapCache(resetBackfillCheck: true);
-                await LoadSources(); await LoadAlbums(); await Refresh();
-            }
+                    var log = Path.Combine(AppSettings.LocalRoot, "last-transfer.json");
+                    await File.WriteAllTextAsync(log, JsonSerializer.Serialize(reports, new JsonSerializerOptions { WriteIndented = true }));
+                    if (!catalogFailure)
+                    {
+                        progress.Report(("Updating catalog & gallery…", 95));
+                        await Task.Run(() => catalog.ScanAsync(targetId, targetRoot));
+                        InvalidateMapCache(resetBackfillCheck: true);
+                        await LoadSources(); await LoadAlbums(); await Refresh();
+                    }
+                },
+                cancellable: true);
+            var logPath = Path.Combine(AppSettings.LocalRoot, "last-transfer.json");
             var errors = reports.Where(r => r.Error is not null).ToArray();
-            Notify($"{reports.Count(r => move ? r.Moved : r.Copied):N0} / {paths.Length:N0} completed. " + (errors.Length > 0 ? errors[0].Error + " Details: " + log : "Original organization is retained for in-app moves."), errors.Length > 0);
+            Notify($"{reports.Count(r => move ? r.Moved : r.Copied):N0} / {paths.Length:N0} completed. " + (errors.Length > 0 ? errors[0].Error + " Details: " + logPath : "Original organization is retained for in-app moves."), errors.Length > 0);
             return reports.Count == paths.Length && errors.Length == 0;
         }
         finally
         {
             try { await File.WriteAllTextAsync(Path.Combine(AppSettings.LocalRoot, "last-transfer.json"), JsonSerializer.Serialize(reports, new JsonSerializerOptions { WriteIndented = true })); }
             catch (IOException) { Notify("The transfer report could not be saved. Check available disk space.", true); }
-            Busy.IsActive = false; CancelButton.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -450,55 +460,66 @@ public sealed partial class MainWindow
         }
 
         var remaining = reports.ToList();
-        foreach (var item in movedItems)
-        {
-            var srcRoot = Path.GetPathRoot(item.Source);
-            if (string.IsNullOrWhiteSpace(srcRoot) || !Directory.Exists(srcRoot))
+        await RunLockedAsync(
+            "Undoing recent move",
+            $"Moving {movedItems.Length:N0} file(s) back while keeping tags and albums attached…",
+            async (progress, ct) =>
             {
-                skippedOffline++;
-                continue;
-            }
-            var destMatch = MatchRegisteredRoot(item.Destination);
-            var origMatch = MatchRegisteredRoot(item.Source);
-            var catalogEntry = destMatch is { } dm ? await catalog.GetItemAsync(dm.SourceId, dm.RelativePath) : null;
+                for (int i = 0; i < movedItems.Length; i++)
+                {
+                    if (ct.IsCancellationRequested) break;
+                    var item = movedItems[i];
+                    progress.Report(($"Restoring {i + 1:N0} / {movedItems.Length:N0}: {Path.GetFileName(item.Source)}", 100d * i / movedItems.Length));
+                    var srcRoot = Path.GetPathRoot(item.Source);
+                    if (string.IsNullOrWhiteSpace(srcRoot) || !Directory.Exists(srcRoot))
+                    {
+                        skippedOffline++;
+                        continue;
+                    }
+                    var destMatch = MatchRegisteredRoot(item.Destination);
+                    var origMatch = MatchRegisteredRoot(item.Source);
+                    var catalogEntry = destMatch is { } dm ? await catalog.GetItemAsync(dm.SourceId, dm.RelativePath) : null;
 
-            var destDir = Path.GetDirectoryName(item.Source)!;
-            Directory.CreateDirectory(destDir);
-            var rev = await Task.Run(() => FileTransfer.RunAsync(item.Destination, item.Source, true, () => File.Exists(item.Destination), CancellationToken.None));
-            if (rev.Moved)
-            {
-                undone++;
-                remaining.Remove(item);
-                if (catalogEntry is not null && origMatch is { } om)
-                {
-                    try
+                    var destDir = Path.GetDirectoryName(item.Source)!;
+                    Directory.CreateDirectory(destDir);
+                    var rev = await Task.Run(() => FileTransfer.RunAsync(item.Destination, item.Source, true, () => File.Exists(item.Destination), ct));
+                    if (rev.Moved)
                     {
-                        var info = new FileInfo(item.Source);
-                        await catalog.RelocateAsync(catalogEntry.Media, catalogEntry.Media with
+                        undone++;
+                        remaining.Remove(item);
+                        if (catalogEntry is not null && origMatch is { } om)
                         {
-                            SourceId = om.SourceId,
-                            RelativePath = om.RelativePath,
-                            Length = info.Length,
-                            ModifiedTicks = info.LastWriteTimeUtc.Ticks,
-                            IsAvailable = true
-                        });
+                            try
+                            {
+                                var info = new FileInfo(item.Source);
+                                await catalog.RelocateAsync(catalogEntry.Media, catalogEntry.Media with
+                                {
+                                    SourceId = om.SourceId,
+                                    RelativePath = om.RelativePath,
+                                    Length = info.Length,
+                                    ModifiedTicks = info.LastWriteTimeUtc.Ticks,
+                                    IsAvailable = true
+                                });
+                            }
+                            catch { relocationErrors++; }
+                        }
+                        else
+                        {
+                            foreach (var src in roots)
+                            {
+                                var rPath = resolver.ResolveRoot(src.Id);
+                                if (rPath is not null && (item.Source.StartsWith(rPath, StringComparison.OrdinalIgnoreCase) || item.Destination.StartsWith(rPath, StringComparison.OrdinalIgnoreCase)))
+                                    await Task.Run(() => catalog.ScanAsync(src.Id, rPath));
+                            }
+                        }
                     }
-                    catch { relocationErrors++; }
                 }
-                else
-                {
-                    foreach (var src in roots)
-                    {
-                        var rPath = resolver.ResolveRoot(src.Id);
-                        if (rPath is not null && (item.Source.StartsWith(rPath, StringComparison.OrdinalIgnoreCase) || item.Destination.StartsWith(rPath, StringComparison.OrdinalIgnoreCase)))
-                            await Task.Run(() => catalog.ScanAsync(src.Id, rPath));
-                    }
-                }
-            }
-        }
-        try { await File.WriteAllTextAsync(log, JsonSerializer.Serialize(remaining, new JsonSerializerOptions { WriteIndented = true })); } catch { }
-        InvalidateMapCache(resetBackfillCheck: false);
-        await LoadSources(); await LoadAlbums(); await Refresh();
+                progress.Report(("Refreshing gallery & catalog links…", 95));
+                try { await File.WriteAllTextAsync(log, JsonSerializer.Serialize(remaining, new JsonSerializerOptions { WriteIndented = true })); } catch { }
+                InvalidateMapCache(resetBackfillCheck: false);
+                await LoadSources(); await LoadAlbums(); await Refresh();
+            },
+            cancellable: true);
         var undoNote = $"Reversed {undone:N0} of {movedItems.Length:N0} moved file(s) with saved tags and albums preserved.";
         if (skippedOffline > 0) undoNote += $" {skippedOffline:N0} skipped because destination drive is disconnected.";
         if (relocationErrors > 0) undoNote += $" {relocationErrors:N0} catalog link(s) could not be updated; refresh those sources.";
