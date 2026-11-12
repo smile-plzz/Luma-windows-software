@@ -89,6 +89,21 @@ public static class SourcePaths
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
     };
 
+    private static readonly char[] InvalidWindowsFileNameChars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+
+    public static bool IsInvalidWindowsFileNameChar(char ch) =>
+        ch < ' ' || Array.IndexOf(InvalidWindowsFileNameChars, ch) >= 0;
+
+    public static string SanitizeWindowsFileNameStem(string stem)
+    {
+        if (string.IsNullOrEmpty(stem)) return "";
+        return string.Create(stem.Length, stem, static (span, value) =>
+        {
+            for (int i = 0; i < value.Length; i++)
+                span[i] = IsInvalidWindowsFileNameChar(value[i]) ? '_' : value[i];
+        });
+    }
+
     public static bool ValidateWindowsFileName(string? name, out string error)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -96,7 +111,7 @@ public static class SourcePaths
             error = "Enter a valid Windows filename.";
             return false;
         }
-        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.Contains('/') || name.Contains('\\') || name.EndsWith('.') || name.EndsWith(' '))
+        if (name.Any(IsInvalidWindowsFileNameChar) || name.EndsWith('.') || name.EndsWith(' '))
         {
             error = "Enter a valid Windows filename without invalid characters or trailing dots or spaces.";
             return false;

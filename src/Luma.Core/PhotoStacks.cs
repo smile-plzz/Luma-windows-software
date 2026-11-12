@@ -166,10 +166,7 @@ public static class BatchRenameFormatter
             .Replace("{orig}", origStem, StringComparison.OrdinalIgnoreCase)
             .Replace("{seq}", seqStr, StringComparison.OrdinalIgnoreCase);
 
-        foreach (var bad in Path.GetInvalidFileNameChars())
-            stem = stem.Replace(bad, '_');
-
-        stem = stem.Trim().TrimEnd('.');
+        stem = SourcePaths.SanitizeWindowsFileNameStem(stem).Trim().TrimEnd('.');
         if (string.IsNullOrWhiteSpace(stem)) stem = $"{origStem}_{seqStr}";
         return stem + ext;
     }
