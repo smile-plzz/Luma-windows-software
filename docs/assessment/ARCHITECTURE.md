@@ -77,10 +77,10 @@ sequenceDiagram
     Thumb-->>UI: Decode BitmapImage or load .thumb cache
 ```
 
-Key threading truths verified in `src/` and `tests/Luma.Tests/GalleryTests.cs`:
+Key threading truths verified in `src/` and `tests/Luma.Tests/`:
 - Gallery reads run inside deferred read-only transactions (`LibraryQueries`), allowing browsing, search, and month counts to remain responsive while a background scan holds the writer slot.
-- `MainWindow.Gallery.cs` enforces viewport-windowed card realization (`RealizeVisibleWindow`) so even 100k+ item libraries materialize only a narrow band of XAML `MediaCard` elements around the scroll offset.
-- Known race/re-entrancy risks identified in this audit: `UpdateEmptyState` (`async void` lacking a check against concurrent query swaps), `DiskGuard` blocking even warm `.thumb` reads on low disk, and `ReviewLastTransfer` undo running full `ScanAsync` instead of atomic `RelocateAsync`.
+- `MainWindow.Gallery.cs` enforces viewport-windowed card realization and container scale/opacity resets (`ResetThumbnailVisual`) so 100k+ item libraries keep low memory and clean recycled visuals. Rapid filter switches pre-cancel `queryCancellation` and coalesce via `galleryRequestVersion` + deferred `GalleryResetVeil`.
+- `MainWindow.Progress.cs` guards startup, `cache.lock` contention, and destructive/heavy mutations under `LoadingVeil` (`WorkspaceHost.IsEnabled = false`) with a visible `ProgressBar` and cancel support (`D-14`). Earlier audit findings (`UpdateEmptyState` concurrency, `DiskGuard` warm offline reads, `ReviewLastTransfer` atomic `RelocateAsync`, and `PathRedactor` on `last-error.txt`) are resolved and regression-tested (`F-001`..`F-033`).
 
 ## 4. External Drive & Offline Browsing Pipeline
 
@@ -93,5 +93,5 @@ Key threading truths verified in `src/` and `tests/Luma.Tests/GalleryTests.cs`:
 - **Strictly read-only indexing:** `ResumableIndexing`, `WindowsMetadataReader`, `MinimalGpsExtractor`, and `ThumbnailService` never open user originals with write access.
 - **Original mutations only by user command:** Copy/Move use `FileTransfer` (zero silent overwrites; skips collisions). Delete delegates to Windows `SHFileOperation` (`FO_DELETE` + `FOF_ALLOWUNDO`) to invoke the Windows Recycle Bin confirmation dialog.
 - **No unsolicited network calls:** Default Map view uses bundled vector map geometry (`OfflineWorldMap` + `map.html`). Optional online tiles require explicit user toggle. Feedback opens the user's browser via `https://github.com/smile-plzz/Luma-windows-software/issues/new` only when clicked.
-- **Crash/error logs:** `App.LogCrash` runs `PathRedactor.Redact` to strip user profile/drive folder paths; `MainWindow.Guard` is being aligned to redact `last-error.txt` identically.
+- **Crash/error logs:** `App.LogCrash` and `MainWindow.Guard` both run `PathRedactor.Redact` to strip user profile and drive folder paths cleanly from `crash.log` and `last-error.txt`.
 

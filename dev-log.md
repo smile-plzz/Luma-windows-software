@@ -259,3 +259,10 @@ Luma: Agent Swarm Handoff (v0.6.0 to v1.0.0)
   - `dotnet test tests/Luma.Windows.Tests/Luma.Windows.Tests.csproj -c Release`: **8 passed, 0 failed, 0 skipped**.
   - `scripts/Smoke-Test.ps1 -Executable artifacts/Luma-win-x64/Luma.App.exe`: **exited with code 0** (`[521.7s] Smoke test completed successfully`).
   - Packaged `artifacts/Luma-v0.7.0-rc1-win-x64.zip` (`86,796,978` bytes, SHA-256 `6710B88A04E8E48192AC6665394BCB8BC00C4E73A7CDBF82703779E137C29FF6`, `Luma.App.exe` SHA-256 `C06DCD3A73427E71B2103651C83F388B4EE9EFD1DBBBF16A75D0BFE63BD353A9`) and `artifacts/SHA256SUMS.txt`.
+
+---
+
+## 2026-11-12T14:01:00+06:00 - Documentation & Iconography Sync + Build Shutdown
+
+- Updated [context.md](context.md), [docs/BRANDING.md](docs/BRANDING.md), [docs/USER_GUIDE.md](docs/USER_GUIDE.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [docs/assessment/ARCHITECTURE.md](docs/assessment/ARCHITECTURE.md) to reflect external media handoff, Map SQLite/in-session caching (`D-13`), `LoadingVeil` / `ActiveWorkBanner` loading safety (`D-14`), `Luma.ico` (`37,539` bytes from `Luma.svg`) + `Segoe Fluent Icons` in-app iconography, and `MicaKind.BaseAlt` translucent sidebar surfaces.
+- Shut down .NET/MSBuild/Roslyn compiler build servers cleanly (`dotnet build-server shutdown`); paused local build activity.
