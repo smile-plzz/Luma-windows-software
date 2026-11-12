@@ -81,7 +81,11 @@ public sealed partial class MediaCache
             await using var r=await cmd.ExecuteReaderAsync(ct);
             while(await r.ReadAsync(ct)) completed.Add((r.GetString(0),r.GetInt64(1)));
         }
-        if (completed.Any(f => !Directory.Exists(Path.Combine(root,f.Path)) || new DirectoryInfo(Path.Combine(root,f.Path)).Attributes.HasFlag(FileAttributes.ReparsePoint) || Directory.GetLastWriteTimeUtc(Path.Combine(root,f.Path)).Ticks != f.Stamp))
+        if (completed.Any(f =>
+        {
+            var dirInfo = new DirectoryInfo(Path.Combine(root, f.Path));
+            return !dirInfo.Exists || dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint) || dirInfo.LastWriteTimeUtc.Ticks != f.Stamp;
+        }))
             { await Sql(ClearScan); completed.Clear(); }
         await using(var tx=db.BeginTransaction())
         {
@@ -131,7 +135,7 @@ public sealed partial class MediaCache
                 await using var r=await cmd.ExecuteReaderAsync(ct);
                 while(await r.ReadAsync(ct)) savedPaths.Add(r.GetString(0));
             }
-            var batch=new List<FileInfo>(100);
+            var batch=new List<(FileInfo Info,string RelPath)>(100);
             async Task SaveBatch()
             {
                 VerifySource();
@@ -141,9 +145,9 @@ public sealed partial class MediaCache
                 insert.Parameters.AddWithValue("$id",sourceId); insert.Parameters.AddWithValue("$folder",folder);
                 insert.Parameters.Add("$path",SqliteType.Text); insert.Parameters.Add("$len",SqliteType.Integer);
                 insert.Parameters.Add("$ticks",SqliteType.Integer); insert.Parameters.Add("$kind",SqliteType.Text); insert.Prepare();
-                foreach(var info in batch)
+                foreach(var (info, relPath) in batch)
                 {
-                    insert.Parameters["$path"].Value=Path.GetRelativePath(root,info.FullName);
+                    insert.Parameters["$path"].Value=relPath;
                     insert.Parameters["$len"].Value=info.Length; insert.Parameters["$ticks"].Value=info.LastWriteTimeUtc.Ticks;
                     insert.Parameters["$kind"].Value=Videos.Contains(info.Extension) ? "video" : "photo";
                     await insert.ExecuteNonQueryAsync(ct);
@@ -151,25 +155,38 @@ public sealed partial class MediaCache
                 await tx.CommitAsync(ct); count+=batch.Count; batch.Clear(); progress?.Report(count); Report(folder);
             }
             const FileAttributes CloudPlaceholderFlags = FileAttributes.Offline | (FileAttributes)0x00400000 | (FileAttributes)0x00040000;
-            foreach(var info in new DirectoryInfo(directory).EnumerateFiles())
+            var dirObj = new DirectoryInfo(directory);
+            foreach(var info in dirObj.EnumerateFiles())
             {
                 ct.ThrowIfCancellationRequested(); examined++; Report(folder);
-                if(exclusions.Any(e=>e.Matches(sourceId,Path.GetRelativePath(root,info.FullName))))continue;
-                if(!Extensions.Contains(info.Extension) || savedPaths.Contains(Path.GetRelativePath(root,info.FullName))) continue;
+                if(!Extensions.Contains(info.Extension)) continue;
                 if(info.Attributes.HasFlag(FileAttributes.ReparsePoint)) continue;
                 if((info.Attributes & CloudPlaceholderFlags) != 0) continue;
-                batch.Add(info);
+                var relPath = folder.Length == 0 ? info.Name : Path.Combine(folder, info.Name);
+                if(exclusions.Any(e=>e.Matches(sourceId,relPath)) || savedPaths.Contains(relPath)) continue;
+                batch.Add((info, relPath));
                 if(batch.Count==100) await SaveBatch();
             }
             if(batch.Count>0) await SaveBatch();
             VerifySource();
             await using(var tx=db.BeginTransaction())
             {
-                foreach(var sub in Directory.EnumerateDirectories(directory))
+                await using var subInsert = db.CreateCommand();
+                subInsert.Transaction = tx;
+                subInsert.CommandText = "INSERT OR IGNORE INTO scan_folders(source_id,path) VALUES($id,$path)";
+                subInsert.Parameters.AddWithValue("$id", sourceId);
+                var pSubPath = subInsert.Parameters.Add("$path", SqliteType.Text);
+                subInsert.Prepare();
+                foreach(var subInfo in dirObj.EnumerateDirectories())
                 {
                     ct.ThrowIfCancellationRequested();
-                    if(!exclusions.Any(e=>e.Kind!="type" && e.Matches(sourceId,Path.GetRelativePath(root,sub))) && !new DirectoryInfo(sub).Attributes.HasFlag(FileAttributes.ReparsePoint))
-                        await Sql("INSERT OR IGNORE INTO scan_folders(source_id,path) VALUES($id,$path)",tx,("$path",Path.GetRelativePath(root,sub)));
+                    if(subInfo.Attributes.HasFlag(FileAttributes.ReparsePoint)) continue;
+                    var relSub = folder.Length == 0 ? subInfo.Name : Path.Combine(folder, subInfo.Name);
+                    if(!exclusions.Any(e=>e.Kind!="type" && e.Matches(sourceId,relSub)))
+                    {
+                        pSubPath.Value = relSub;
+                        await subInsert.ExecuteNonQueryAsync(ct);
+                    }
                 }
                 if(Directory.GetLastWriteTimeUtc(directory).Ticks != stamp)
                     throw new IOException("Folder contents changed during indexing. Choose Resume indexing to retry.");

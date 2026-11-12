@@ -95,8 +95,13 @@ foreach (var r in results)
 }
 Console.WriteLine("=========================================================================");
 
-// Save to docs/performance
-var outDir = Path.Combine(AppContext.BaseDirectory, "../../../../docs/performance");
+// Save to repo-root docs/performance
+var repoRoot = AppContext.BaseDirectory;
+while (repoRoot is not null && (!Directory.Exists(Path.Combine(repoRoot, "docs")) || !Directory.Exists(Path.Combine(repoRoot, "src"))))
+    repoRoot = Directory.GetParent(repoRoot)?.FullName;
+var outDir = repoRoot is not null
+    ? Path.Combine(repoRoot, "docs", "performance")
+    : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../docs/performance"));
 if (!Directory.Exists(outDir)) Directory.CreateDirectory(outDir);
 var jsonFile = Path.Combine(outDir, "windows-v0.7.0-benchmarks.json");
 File.WriteAllText(jsonFile, JsonSerializer.Serialize(new

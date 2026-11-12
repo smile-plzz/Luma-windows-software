@@ -73,8 +73,16 @@ public sealed partial class MainWindow
             var buttons=new StackPanel { Orientation=Orientation.Horizontal,Spacing=4 };
             buttons.Children.Add(ActionButton("Browse",()=>Choose(async ()=>
             {
-                ready=false; Sources.SelectedItem=((IEnumerable<SourceChoice>)Sources.ItemsSource).FirstOrDefault(s=>s.Id==source.Id);
-                FolderFilter.Text=""; SearchBox.Text=""; AlbumsBox.SelectedItem=null; Navigation.SelectedIndex=0; MemoryDate.Visibility=Visibility.Collapsed; Heading.Text="Library"; ClearDateRange(); ready=true;
+                ready=false;
+                Sources.SelectedItem=((IEnumerable<SourceChoice>)Sources.ItemsSource).FirstOrDefault(s=>s.Id==source.Id);
+                FolderFilter.Text=""; SearchBox.Text=""; AlbumsBox.SelectedItem=null; SmartCollectionsBox.SelectedItem=null;
+                filterOrientation=null; OrientationFilterBox.SelectedIndex=0;
+                filterMinLength=null; MinSizeFilterBox.SelectedIndex=0;
+                filterUntaggedOnly=false; UntaggedFilterToggle.IsChecked=false;
+                filterHasGpsOnly=false; HasGpsFilterToggle.IsChecked=false;
+                activeMapBounds=null; FilterFromDate.Date=null; FilterToDate.Date=null; DayJumpPicker.Date=null; TagFilterBox.SelectedItem=null;
+                Navigation.SelectedIndex=0; MemoryDate.Visibility=Visibility.Collapsed; Heading.Text="Library"; ClearDateRange();
+                ready=true;
                 await Refresh();
             })));
             buttons.Children.Add(ActionButton("Rename",()=>Choose(async ()=>
@@ -94,9 +102,26 @@ public sealed partial class MainWindow
                 if(!await Confirm("Restart indexing?",$"Discard the saved indexing checkpoint for {source.RootPath} and start a fresh scan? The published gallery and originals stay intact.","Restart"))return;
                 await catalog.DiscardIndexingAsync(source.Id); await RefreshSources(source.Id);
             }); menu.Items.Add(restart);
+            var reconcile = new MenuFlyoutItem { Text = "Reconcile moved files", IsEnabled = source.IsOnline };
+            reconcile.Click += (_, _) => Choose(async () =>
+            {
+                Notify($"Checking {source.RootPath} for externally moved files…");
+                var report = await Task.Run(() => catalog.ReconcileExternalMovesAsync(source.Id));
+                if (report.Count > 0)
+                {
+                    await LoadAlbums();
+                    await Refresh();
+                    Notify($"Reconciled {report.Count} moved file(s). Organization, favorites, and albums preserved!");
+                }
+                else
+                {
+                    Notify("No moved files detected in this source.");
+                }
+            });
+            menu.Items.Add(reconcile);
             row.Children.Add(buttons); row.Children.Add(more); panel.Children.Add(row);
         }
-        await dialog.ShowAsync(); if(action is not null) await action();
+        await ShowDialogAsync(dialog); if(action is not null) await action();
     },true);
 
     private async Task RemoveManagedSource(string id)
@@ -110,8 +135,16 @@ public sealed partial class MainWindow
         content.Children.Add(Description($"Remove {source.RootPath} from Luma?\n\n{count:N0} catalog items, their favorites, tags and album memberships will be removed. Original files will not be deleted or moved. Adding it again will scan it as a new source."));
         content.Children.Add(removePreviews);
         var dialog=new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot=Root.XamlRoot,Title="Remove source from Luma?",Content=content,PrimaryButtonText="Remove from Luma",CloseButtonText="Cancel",DefaultButton=ContentDialogButton.Close };
-        if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
+        if(await ShowDialogAsync(dialog)!=ContentDialogResult.Primary)return;
+        try
+        {
+            var backupDir = Path.Combine(AppSettings.LocalRoot, "backups");
+            Directory.CreateDirectory(backupDir);
+            await catalog.CreateBackupAsync(Path.Combine(backupDir, $"catalog-pre-remove-{DateTime.UtcNow:yyyyMMddHHmmss}.db"));
+        }
+        catch { }
         await catalog.RemoveSourceAsync(id);
+        InvalidateMapCache(resetBackfillCheck: true);
         if(SelectedSource==id) { var wasReady=ready; ready=false; FolderFilter.Text=""; ClearDateRange(); ready=wasReady; }
         await LoadSources(); await LoadAlbums(); await Refresh();
         if(removePreviews.IsChecked==true && cache is not null)
@@ -146,7 +179,7 @@ public sealed partial class MainWindow
         panel.Children.Add(ActionButton("Clear selected previews",()=>Choose(ClearScopedPreviews)));
         panel.Children.Add(ActionButton("Clean unused previews",()=>Choose(_=>CleanUnusedPreviews())));
         panel.Children.Add(Description("Cleanup covers all sources and removes only previews no longer referenced by the catalog. Cache size is configurable in Settings."));
-        await UpdateStats(); await dialog.ShowAsync(); if(action is not null)await action();
+        await UpdateStats(); await ShowDialogAsync(dialog); if(action is not null)await action();
     }
 
     private async Task MaintainCache(Func<Task> action)
@@ -154,7 +187,7 @@ public sealed partial class MainWindow
         clearing=true; queryCancellation?.Cancel();
         try
         {
-            try { await Task.WhenAll(cacheTasks.ToArray()); } catch(OperationCanceledException) { }
+            try { await Task.WhenAll(SnapshotCacheTasks()); } catch(OperationCanceledException) { }
             await UseCache(async ()=> { await action(); return true; });
         }
         finally
@@ -165,7 +198,14 @@ public sealed partial class MainWindow
     }
     private async Task RunPreviewMaintenance(string? id,bool rebuild)
     {
-        var scope=id is null ? "all sources" : (await catalog.SourcesAsync()).First(s=>s.Id==id).RootPath;
+        if (!DiskGuard.HasSufficientSpace())
+        {
+            Notify("Low disk space (< 500 MB free). Free space on your system drive before generating offline previews.", true);
+            return;
+        }
+        var targetSource = id is null ? null : (await catalog.SourcesAsync()).FirstOrDefault(s => s.Id == id);
+        if (id is not null && targetSource is null) { Notify("Selected source is no longer registered."); return; }
+        var scope = targetSource?.RootPath ?? "all sources";
         if(rebuild && !await Confirm("Rebuild previews?",$"Regenerate previews for {scope}. Offline or failed previews will be kept. This can take time; you can cancel and run it again.","Rebuild"))return;
         preparing=true; preparationCancellation=new(); CancelButton.Visibility=Visibility.Visible; Busy.IsActive=true;
         try
@@ -176,12 +216,12 @@ public sealed partial class MainWindow
                 string message;
                 if(rebuild)
                 {
-                    var result=await Preparation.RebuildAsync(id,progress,preparationCancellation.Token);
+                    var result=await Task.Run(()=>Preparation.RebuildAsync(id,progress,preparationCancellation.Token),preparationCancellation.Token);
                     message=$"Rebuilt {result.Updated:N0} of {result.Checked:N0} previews. Offline, unsupported or capacity-limited previews were preserved.";
                 }
                 else
                 {
-                    var result=await Preparation.PrepareAsync(id,progress,preparationCancellation.Token);
+                    var result=await Task.Run(()=>Preparation.PrepareAsync(id,progress,preparationCancellation.Token),preparationCancellation.Token);
                     message=$"Repair finished: {result.Cached:N0} / {result.Total:N0} previews saved. Remaining gaps may need a connected source, supported codec or more space.";
                 }
                 DispatcherQueue.TryEnqueue(()=>Notify(message));
@@ -225,7 +265,7 @@ public sealed partial class MainWindow
         var dialog=new ContentDialog { RequestedTheme=Root.ActualTheme, XamlRoot=Root.XamlRoot,Title="Activity",Content=new ScrollViewer { MaxHeight=440,Content=panel },CloseButtonText="Close" };
         var resume=ActionButton("Resume paused indexing",()=>dialog.Hide());
         bool retry=false; resume.Click+=(_,_)=>retry=true; resume.IsEnabled=!operation && checkpoints.Count>0; panel.Children.Add(resume);
-        timer.Start(); try { await dialog.ShowAsync(); } finally { timer.Stop(); }
+        timer.Start(); try { await ShowDialogAsync(dialog); } finally { timer.Stop(); }
         if(retry) ResumeIndexing(sender,e);
     });
 }

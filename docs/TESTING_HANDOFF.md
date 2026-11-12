@@ -1,21 +1,21 @@
 # Luma: shipment and real-life testing
 
-Shipment updated: 13 October 2026 (Asia/Dhaka). The portable gallery milestone is merged into `main` through PR #6, followed by UI/import refinements in PR #7 and the shipped reconnect optimization in [PR #8](https://github.com/smile-plzz/Luma/pull/8). Resumable indexing and On this day memories are merged in [PR #9](https://github.com/smile-plzz/Luma/pull/9). Real-life testing and everyday use now guide further refinements. This is a testing shipment, not a claim that physical-device acceptance is complete.
+Shipment updated: 13 October 2026 (Asia/Dhaka). The portable gallery milestone is merged into `main` through PR #6, followed by UI/import refinements in PR #7 and the shipped reconnect optimization in [PR #8](https://github.com/smile-plzz/Luma-windows-software/pull/8). Resumable indexing and On this day memories are merged in [PR #9](https://github.com/smile-plzz/Luma-windows-software/pull/9). Real-life testing and everyday use now guide further refinements. This is a testing shipment, not a claim that physical-device acceptance is complete.
 
 ## What changed in this shipment
 
-- [PR #14](https://github.com/smile-plzz/Luma/pull/14) completes saved source/folder/month/visible-item restoration, explicit discovery and metadata progress, contextual help, action feedback and theme-matched dialogs. Settings can disable remembered position. [Behavior and limits](FINAL_EXPERIENCE.md). The planned product build is closed; subsequent work follows defects and everyday-use feedback.
+- [PR #14](https://github.com/smile-plzz/Luma-windows-software/pull/14) completes saved source/folder/month/visible-item restoration, explicit discovery and metadata progress, contextual help, action feedback and theme-matched dialogs. Settings can disable remembered position. [Behavior and limits](FINAL_EXPERIENCE.md). The planned product build is closed; subsequent work follows defects and everyday-use feedback.
 
-- [PR #13](https://github.com/smile-plzz/Luma/pull/13) adds confirmed right-click folder, source and global file-type exclusions. Settings and Refresh expose a manager to add or restore rules. Scans, metadata and previews skip excluded media while catalog organization and originals remain intact. Empty views point to restoration. Changing rules restarts affected paused traversals.
+- [PR #13](https://github.com/smile-plzz/Luma-windows-software/pull/13) adds confirmed right-click folder, source and global file-type exclusions. Settings and Refresh expose a manager to add or restore rules. Scans, metadata and previews skip excluded media while catalog organization and originals remain intact. Empty views point to restoration. Changing rules restarts affected paused traversals.
 - An original photo-card icon appears on the EXE and window, with descriptive Windows file properties and version 0.5.0. [Exclusion guide](EXCLUSIONS.md) · [Branding source](BRANDING.md).
 
-- [PR #12](https://github.com/smile-plzz/Luma/pull/12) adds **Months**, a named month/count picker, exact month filtering, Older/Newer and All months. **Select** enables plain-click multi-selection; Copy to, clipboard Copy/Cut and More expose file and album actions. Clipboard preparation remains available during indexing.
+- [PR #12](https://github.com/smile-plzz/Luma-windows-software/pull/12) adds **Months**, a named month/count picker, exact month filtering, Older/Newer and All months. **Select** enables plain-click multi-selection; Copy to, clipboard Copy/Cut and More expose file and album actions. Clipboard preparation remains available during indexing.
 - Captured-date pages use a maintained SQLite index, continuation pages reuse counts, metadata writes commit in batches, and recycled tiles cancel queued preview work. Scanning shows elapsed time and distinct discovery/date-reading phases. A one-time local index migration requires no source rescan.
 
-- [PR #11](https://github.com/smile-plzz/Luma/pull/11) addresses review items 1 and 3: all supported formats appear by default, active filters have removable chips, counts show filtered results against the whole library, and Reset clears all content filters. On upgrade, the former default everyday-format filter is disabled once; subsequent explicit choices persist.
+- [PR #11](https://github.com/smile-plzz/Luma-windows-software/pull/11) addresses review items 1 and 3: all supported formats appear by default, active filters have removable chips, counts show filtered results against the whole library, and Reset clears all content filters. On upgrade, the former default everyday-format filter is disabled once; subsequent explicit choices persist.
 - Timeline is **View → Show timeline** within Library. Settings and Storage & previews stay pinned below the sidebar. Manage sources, Refresh, Storage & previews and Activity each own their maintenance tasks; the duplicate Drive tools panel is removed.
 
-- [PR #10](https://github.com/smile-plzz/Luma/pull/10) adds visible Manage sources, explicit refresh scopes, Storage & previews, safe rebuild/repair, unused-preview cleanup and Activity. Removal refreshes album counts and never deletes originals.
+- [PR #10](https://github.com/smile-plzz/Luma-windows-software/pull/10) adds visible Manage sources, explicit refresh scopes, Storage & previews, safe rebuild/repair, unused-preview cleanup and Activity. Removal refreshes album counts and never deletes originals.
 
 - Indexing saves persistent checkpoints every 100 media records and at folder boundaries. Resume after cancellation, app restart or reconnect; the published gallery stays intact until indexing finishes. Activity includes paused indexing and skipped-folder reports; Manage sources offers **More → Restart indexing**.
 - Protected folders produce a report and prevent pruning older catalog entries. Completed folders are reused; changed folder timestamps conservatively invalidate the checkpoint. This is not a filesystem journal.
@@ -37,18 +37,18 @@ Native restart tests verified the deep visible anchor and inset, earlier-item lo
 | --- | --- |
 | Platform | Windows 10 2004+ / Windows 11, x64 |
 | Package | Unsigned, self-contained portable ZIP; no installer |
-| Download | [Luma v0.6.0 Windows ZIP](https://github.com/smile-plzz/Luma/releases/download/v0.6.0/Luma-v0.6.0-win-x64.zip) |
+| Download | [Luma v0.6.0 Windows ZIP](https://github.com/smile-plzz/Luma-windows-software/releases/download/v0.6.0/Luma-v0.6.0-win-x64.zip) |
 | Tested source | `f655715982253824c41329425c181c8876d9f3d5` |
 | Merge commit | `c85baa965e2220f7ee7ee17c4d9b7634a24a2d0d` |
-| Automated evidence | [Successful run 38355699422](https://github.com/smile-plzz/Luma/actions/runs/38355699422) |
-| Desktop evidence | [Screenshots, settings and smoke results](https://github.com/smile-plzz/Luma/actions/runs/38355699422/artifacts/11792314247) |
+| Automated evidence | [Successful run 38355699422](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38355699422) |
+| Desktop evidence | [Screenshots, settings and smoke results](https://github.com/smile-plzz/Luma-windows-software/actions/runs/38355699422/artifacts/11792314247) |
 | ZIP SHA-256 | `320e0d5dea5226563b980b18927fc99612bdbe6022153d3b46896dd1ef1aef5c` |
 
 Native exclusions checks verify folder cancellation, all three exclusion scopes, Reset persistence, filtered refresh, restoration from an empty gallery, retained original files, and descriptive EXE metadata with an embedded icon. The exclusion manager screenshot and extracted icon were inspected.
 
 82 core tests passed on Windows and Linux, four Windows integration tests passed, and the packaged app passed native desktop automation. The UI run covers continuous scrolling across 260 fixtures and back, recycled images, search, favorites, albums, folders, offline preparation/disconnection, view preferences after restart and theme switching. Light/dark and month-selection screenshots were inspected. Native month tests verify exact counts, adjacent navigation and All months. A two-file selection was copied and both paths were verified in the Windows clipboard. Native reconnect checks verified preserved selection/scroll and no automatic indexing of an added file. Native management checks passed for removal cancellation/confirmation, refreshed album counts, all-source refresh, preview repair/rebuild, Activity and cleanup. Native format/navigation checks verified a DNG catalog entry is visible by default, the everyday-format filter changes the count from 261 to 260, chip removal and Reset reveal it, and Timeline and pinned footer actions are reachable. The offline memories smoke passed; core tests cover resume across restart/mount changes, checkpoint invalidation, cancellation, concurrent scanner exclusion, filtering and leap days. Catalog-only scale tests cover 1k/10k/100k/200k records.
 
-The versioned [v0.6.0 Release](https://github.com/smile-plzz/Luma/releases/tag/v0.6.0) contains the exact verified ZIP plus SHA256SUMS.txt. Release assets do not have the Actions artifact's automatic expiration. Source code archives are separate and do not contain the EXE. The release workflow verifies the successful source run and ZIP digest before publication. Source, build automation, release notes, tests and documentation remain versioned in Git; binaries are under Releases.
+The versioned [v0.6.0 Release](https://github.com/smile-plzz/Luma-windows-software/releases/tag/v0.6.0) contains the exact verified ZIP plus SHA256SUMS.txt. Release assets do not have the Actions artifact's automatic expiration. Source code archives are separate and do not contain the EXE. The release workflow verifies the successful source run and ZIP digest before publication. Source, build automation, release notes, tests and documentation remain versioned in Git; binaries are under Releases.
 
 ## First run and upgrade
 
@@ -97,9 +97,22 @@ An earlier attempt had a Windows UI runtime crash during refresh (`Microsoft.UI.
 
 No new feature work is required before starting this testing stage. Startup/data-integrity defects take priority, followed by recurring performance/usability issues, then additional capabilities.
 
+## 10-Minute Owner Release Candidate Verification Script (v0.7.0-rc1)
+
+Run this exact checklist against the `v0.7.0-rc1` portable ZIP on your personal Windows machine and a real USB external drive (~10 minutes):
+
+1. **Clean extraction & upgrade backup (1 min):** Back up `%LOCALAPPDATA%\Luma`, extract the complete ZIP to a fresh folder, launch `Luma.App.exe` (confirm SmartScreen prompt behaves cleanly and existing v0.6.0 library, tags, albums, and position open without re-scanning).
+2. **First-run / Multi-word tags / Search (2 min):** Assign a multi-word tag such as `Dhaka Trip` to 2 test photos, rename it cleanly in **Organize tools -> Manage tags...**, and search `tag:"Dhaka Trip"` or `location:"..."` to verify quote-aware search preserves spaces.
+3. **Physical external HDD unplug & drive-letter swap (3 min):** In **Storage & previews**, repair previews on a disposable/test folder on your external HDD, unplug the drive cleanly, verify offline previews + metadata + favorites still work offline, replug the HDD (under a different drive letter if possible), and run **Refresh -> Update drive status only** to confirm in-place reconnect without full rescanning.
+4. **External app opening, Map cache & Videos (2 min):** Double-click or press `Enter` on a photo and on a video to confirm both launch directly in your default Windows apps (with no internal preview overlay). Open **Map**, confirm pins load from the SQLite metadata cache cleanly, click **Open in default app** / **Open** in the popup or drawer, and verify clicking **Scan GPS** again reports the cache is already up to date without re-reading unchanged files.
+5. **Safe Undo & Recycle Cancel (1 min):** Move a disposable test file between folders inside Luma, open **Organize tools -> Review / Undo last transfer...** and undo it (confirm tags stay attached). Press `Delete` -> confirm dialog -> click **Cancel** inside Windows' Recycle prompt and verify the card stays in place without triggering a full scan.
+6. **Accessibility, DPI, & Feedback (1 min):** Press `F1` to open Keyboard shortcuts, check Light & Dark themes and 150%+ Windows display scaling if applicable, and verify **Settings -> Send feedback / Report a problem...** opens the prefilled GitHub issue template cleanly.
+
+Record results and any real-drive friction via GitHub Issues or send back findings to feed into `docs/assessment/FINDINGS.md`.
+
 ## Sending feedback
 
-Send feedback in the project conversation or open a [GitHub issue](https://github.com/smile-plzz/Luma/issues/new?template=testing-feedback.md). Include the build/run, Windows version, drive type, approximate file count, exact steps, expected and actual result, and reproducibility. A screenshot or short recording helps. For transfer problems, include the relevant sanitized operation-report entries. Avoid posting your entire catalog or personal media; paths and filenames may contain private information.
+Send feedback in the project conversation or open a [GitHub issue](https://github.com/smile-plzz/Luma-windows-software/issues/new?template=testing-feedback.md). Include the build/run, Windows version, drive type, approximate file count, exact steps, expected and actual result, and reproducibility. A screenshot or short recording helps. For transfer problems, include the relevant sanitized operation-report entries. Avoid posting your entire catalog or personal media; paths and filenames may contain private information.
 
 See [the build guide](GALLERY_BUILD.md) for detailed behavior and [the roadmap](ROADMAP.md) for the closed milestone and deferred work.
 

@@ -1,6 +1,6 @@
 # Luma identity and executable
 
-**Luma — Your memories, beautifully within reach.**
+**Luma: Your memories, beautifully within reach.**
 
 Product description: A local media gallery for Windows. Browse photos and videos on existing folders and drives, revisit your timeline, and keep your memories organized without moving your originals.
 

@@ -2,12 +2,13 @@
 
 ## Project Goals
 
-Deliver Luma v1.0.0 starting from shipped milestone v0.6.0 (`f796035`):
-- Take Luma from planned milestone complete to a polished, trustworthy, daily-driver Windows media library.
-- Fast on very large libraries (100k to 500k items) and responsive on slow HDDs.
-- Safe with the user originals: scanning is read-only, local SQLite catalog and bounded persistent thumbnail cache in `%LOCALAPPDATA%\Luma`.
-- Rich in user-centric features: tags, ratings, color labels, smart collections, duplicate finder, quick preview overlay, export/share.
-- Accessible, easy to install via per-user installer as well as portable ZIP, verified with independent verification.
+Deliver Luma `v0.7.0` (under active stabilization freeze `D-4` toward `v1.0.0`) starting from `v0.6.0` (`f796035`):
+- Make Luma calm, trustworthy, and frustration-free from first download to daily multi-drive use.
+- Zero open S1/S2 defects (`docs/assessment/FINDINGS.md`); all 12 core user journeys (`docs/assessment/JOURNEYS.md`) verified with tests and native UIA checks.
+- Fast on very large libraries (100k to 500k items) and honest on slow external HDDs.
+- Safe with user originals: scanning is read-only, local SQLite catalog and bounded persistent thumbnail cache live in `%LOCALAPPDATA%\Luma`.
+- Rich yet calm curation: multi-word tags & Tag Manager, duplicates finder, Smart Collections, Spacebar Quick Preview, photo stacks, Adaptive/Moments views, and privacy-first Map view.
+- Clear user documentation (`docs/USER_GUIDE.md`, `docs/TROUBLESHOOTING.md`, `docs/KNOWN_LIMITS.md`) and in-app feedback loop (`F1` help + Settings issue link + structured `.github/ISSUE_TEMPLATE/`).
 
 ## Technology Stack
 

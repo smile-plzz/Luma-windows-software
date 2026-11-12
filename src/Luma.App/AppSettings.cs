@@ -12,6 +12,7 @@ public sealed class AppSettings
     public int ThumbnailSize { get; set; } = 190;
     public bool ShowNames { get; set; }
     public bool ShowDetails { get; set; }
+    public bool ShowExactTime { get; set; }
     public bool FitImages { get; set; }
     public bool Compact { get; set; }
     public bool CommonOnly { get; set; }
@@ -20,6 +21,36 @@ public sealed class AppSettings
     public int CacheGiB { get; set; } = 2;
     public string Theme { get; set; } = "Default";
     public bool RestoredFromCorruptedFile { get; set; }
+
+    public bool SidebarCollapsed { get; set; }
+    public bool HeaderCollapsed { get; set; }
+    public bool ViewsExpanded { get; set; } = true;
+    public bool AlbumsExpanded { get; set; } = true;
+    public bool SmartCollectionsExpanded { get; set; }
+    public bool SourcesExpanded { get; set; } = true;
+
+    public string LayoutMode { get; set; } = "Uniform";
+    public bool StackSimilar { get; set; }
+    public bool FavoritesFirst { get; set; }
+    public List<string> RecentDestinations { get; set; } = new();
+    public List<string> RecentSearches { get; set; } = new();
+
+    public string MapViewMode { get; set; } = "heat";
+    public string MapStyle { get; set; } = "";
+    public bool MapHasSavedViewport { get; set; }
+    public double MapCenterLat { get; set; } = 20.0;
+    public double MapCenterLon { get; set; } = 0.0;
+    public double MapZoom { get; set; } = 2.0;
+    public bool MapShowLocations { get; set; }
+    public bool MapShowFilmstrip { get; set; }
+    public bool MapConsentNoticeDismissed { get; set; }
+    public bool MapMatchGalleryFilters { get; set; }
+    public string? MapKind { get; set; }
+    public bool MapFavoritesOnly { get; set; }
+    public string? MapYear { get; set; }
+    public string? MapSourceId { get; set; }
+    public int MapOriginIndex { get; set; }
+    public string MapSearch { get; set; } = "";
 
     public static bool IsSmokeTest => Environment.GetCommandLineArgs().Contains("--smoke-test");
 
@@ -74,6 +105,24 @@ public sealed class AppSettings
         if (document.RootElement.ValueKind == JsonValueKind.Object && !document.RootElement.TryGetProperty(nameof(FilterDefaultsVersion), out _))
             settings.CommonOnly = false;
         settings.FilterDefaultsVersion = 1;
+        settings.RecentDestinations ??= new();
+        settings.RecentSearches ??= new();
+        if (settings.LayoutMode is not ("Uniform" or "Adaptive" or "Moments"))
+            settings.LayoutMode = "Uniform";
+        if (settings.MapViewMode is not ("heat" or "clusters" or "places" or "pins" or "trail"))
+            settings.MapViewMode = "heat";
+        if (settings.MapStyle is not ("" or "minimal-dark" or "minimal-light" or "mono" or "classic"))
+            settings.MapStyle = "";
+        if (!double.IsFinite(settings.MapCenterLat)) settings.MapCenterLat = 20.0;
+        if (!double.IsFinite(settings.MapCenterLon)) settings.MapCenterLon = 0.0;
+        settings.MapCenterLat = Math.Clamp(settings.MapCenterLat, -85.0, 85.0);
+        settings.MapCenterLon = Math.Clamp(settings.MapCenterLon, -180.0, 180.0);
+        if (!double.IsFinite(settings.MapZoom)) settings.MapZoom = 2.0;
+        settings.MapZoom = Math.Clamp(settings.MapZoom, 1.0, 18.0);
+        if (settings.MapKind is not (null or "photo" or "video"))
+            settings.MapKind = null;
+        settings.MapOriginIndex = Math.Clamp(settings.MapOriginIndex, 0, 2);
+        settings.MapSearch ??= "";
         return settings;
     }
 

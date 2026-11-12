@@ -6,13 +6,14 @@ public sealed partial class MainWindow
 {
     private MediaCard? contextCard;
     private void ExclusionMenuClosed(object sender,object e)=>contextCard=null;
-    private async void ExcludeFolder(object sender,RoutedEventArgs e)=>await ExcludeSelected("folder");
-    private async void ExcludeSource(object sender,RoutedEventArgs e)=>await ExcludeSelected("source");
-    private async void ExcludeType(object sender,RoutedEventArgs e)=>await ExcludeSelected("type");
+    private async void ExcludeFolder(object sender,RoutedEventArgs e)=>await Guard(()=>ExcludeSelected("folder"));
+    private async void ExcludeSource(object sender,RoutedEventArgs e)=>await Guard(()=>ExcludeSelected("source"));
+    private async void ExcludeType(object sender,RoutedEventArgs e)=>await Guard(()=>ExcludeSelected("type"));
     private async Task ExcludeSelected(string kind)
     {
         if(operation || scanning) { Notify("Pause the current work in Activity before changing exclusions."); return; }
-        var media=(contextCard ?? Selected)?.Item.Media;if(media is null)return;
+        var media=(contextCard ?? PrimarySelectedCard())?.Item.Media;
+        if(media is null) { Notify("Select a file first to exclude its folder, source, or file type."); return; }
         var value=kind=="type" ? Path.GetExtension(media.RelativePath) : kind=="folder" ? Path.GetDirectoryName(media.RelativePath) ?? "" : "";
         if(kind=="folder" && value.Length==0)kind="source";
         await Guard(()=>ConfirmExclusion(new(kind,kind=="type" ? "" : media.SourceId,value)),true);
@@ -24,6 +25,7 @@ public sealed partial class MainWindow
         var scope=rule.Kind switch { "type"=>$"All {rule.Value.ToLowerInvariant()} files across every source", "source"=>$"Entire source: {root}",_=>$"Folder and subfolders: {Path.Combine(root,rule.Value)}" };
         if(!await Confirm("Exclude from Luma?",scope+"\n\nHide matching media and skip it in future scans. Originals and saved organization stay intact. Affected paused scan checkpoints will restart. Restore the rule in Manage exclusions to show saved media again.","Exclude"))return;
         await Task.Run(()=>catalog.SetExclusionAsync(rule,true));
+        InvalidateMapCache(resetBackfillCheck: true);
         await LoadAlbums(); await Refresh();
         Notify("Exclusion saved. Originals are untouched. Restore it in Manage exclusions.");
     }
@@ -47,7 +49,9 @@ public sealed partial class MainWindow
                 panel.Children.Add(Description(label));
                 var restore=ActionButton("Restore",()=>Choose(async ()=>
                 {
-                    await Task.Run(()=>catalog.SetExclusionAsync(rule,false));await LoadAlbums();await Refresh();
+                    await Task.Run(()=>catalog.SetExclusionAsync(rule,false));
+                    InvalidateMapCache(resetBackfillCheck: true);
+                    await LoadAlbums();await Refresh();
                     Notify("Exclusion restored. Saved media is visible unless another rule excludes it. Refresh to discover previously skipped files.");
                 }));
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(restore,"Restore "+label);panel.Children.Add(restore);
@@ -73,7 +77,7 @@ public sealed partial class MainWindow
                     await ConfirmExclusion(new(relative=="." ? "source" : "folder",source.Id,relative=="." ? "" : relative));
                 })));
             }
-            await dialog.ShowAsync();if(action is not null)await action();
+            await ShowDialogAsync(dialog);if(action is not null)await action();
         }
     }
 }
